@@ -1,0 +1,21 @@
+{
+  "name": "strict-csp-matrix",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "next build && node postbuild.mjs",
+    "start": "next start -p 4200",
+    "dev": "next dev -p 4200",
+    "test": "node matrix-test.mjs"
+  },
+  "dependencies": {
+    "next": "^16.2.7",
+    "react": "^19",
+    "react-dom": "^19",
+    "strict-csp-next": "file:../../strict-csp-next-0.1.0.tgz"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}

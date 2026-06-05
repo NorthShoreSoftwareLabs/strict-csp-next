@@ -1,0 +1,10 @@
+node_modules
+dist
+*.log
+*.tgz
+.DS_Store
+.next
+out
+coverage
+examples/**/package-lock.json
+examples/**/pnpm-lock.yaml

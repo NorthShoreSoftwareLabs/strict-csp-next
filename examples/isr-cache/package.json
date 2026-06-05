@@ -1,0 +1,17 @@
+{
+  "name": "strict-csp-isr-cache",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "start": "next start -p 4310",
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "next": "^16.2.7",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "strict-csp-next": "file:../../strict-csp-next-0.1.0.tgz"
+  }
+}
