@@ -1,6 +1,10 @@
 import { type Dirent, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { countInlineScripts, extractInlineHashes } from "./hash.js";
+import {
+	countInlineScripts,
+	extractExternalIntegrity,
+	extractInlineHashes,
+} from "./hash.js";
 import { buildMetaPolicy } from "./policy.js";
 import type { HashAlgorithm, StrictCspOptions } from "./types.js";
 
@@ -107,7 +111,8 @@ export function injectMetaCsp(
 		const original = readFileSync(file, "utf8");
 		const html = original.replace(META_TAG, "");
 		const hashes = extractInlineHashes(html, algorithm);
-		const policy = buildMetaPolicy(hashes, options);
+		const externalIntegrity = extractExternalIntegrity(html);
+		const policy = buildMetaPolicy(hashes, options, externalIntegrity);
 		const meta = `<meta http-equiv="Content-Security-Policy" content="${policy}" data-strict-csp>`;
 
 		const insertAt = findHeadInsert(html);

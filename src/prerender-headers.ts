@@ -63,7 +63,12 @@ export function injectPrerenderMetaCsp(
 		// Replace any CSP already present (either case) so we never leave two.
 		delete headers["content-security-policy"];
 		delete headers["content-security-policy-report-only"];
-		headers[headerName] = buildPolicy(route.shellHashes, null, options);
+		headers[headerName] = buildPolicy(
+			route.shellHashes,
+			null,
+			options,
+			route.externalIntegrity,
+		);
 		meta.headers = headers;
 
 		writeFileSync(metaPath, JSON.stringify(meta, null, 2));

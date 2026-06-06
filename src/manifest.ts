@@ -1,6 +1,6 @@
 import { type Dirent, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { extractInlineHashes } from "./hash.js";
+import { extractExternalIntegrity, extractInlineHashes } from "./hash.js";
 import type {
 	CspManifest,
 	HashAlgorithm,
@@ -146,8 +146,9 @@ export function scanRoutes(
 		if (byRoute.has(route)) continue; // keep first on a collision
 		const html = readFileSync(file, "utf8");
 		const shellHashes = extractInlineHashes(html, algorithm);
+		const externalIntegrity = extractExternalIntegrity(html);
 		const mode = classifyRoute(prerenderManifest, route);
-		byRoute.set(route, { route, mode, shellHashes, file });
+		byRoute.set(route, { route, mode, shellHashes, externalIntegrity, file });
 	}
 
 	return [...byRoute.values()].sort((a, b) => a.route.localeCompare(b.route));

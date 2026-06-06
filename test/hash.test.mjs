@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { extractInlineHashes, hashInlineScript } from "../dist/index.js";
+import {
+	countExternalScripts,
+	extractExternalIntegrity,
+	extractInlineHashes,
+	hashInlineScript,
+} from "../dist/index.js";
 
 test("hashInlineScript matches a known sha256 vector", () => {
 	// sha256("") base64
@@ -79,4 +84,53 @@ test("a trailing solidus does not self-close a script element", () => {
 	// <script/> is an open tag in HTML; the element runs until </script>.
 	const html = "<script/>still()</script>";
 	assert.equal(extractInlineHashes(html)[0], hashInlineScript("still()"));
+});
+
+test("extractExternalIntegrity returns integrity hashes from external scripts", () => {
+	const html =
+		'<script src="/a.js" integrity="sha256-abc123"></script>' +
+		'<script src="/b.js" integrity="sha256-def456"></script>';
+	const hashes = extractExternalIntegrity(html);
+	assert.deepEqual(hashes, ["'sha256-abc123'", "'sha256-def456'"]);
+});
+
+test("extractExternalIntegrity skips non-executable types", () => {
+	const html =
+		'<script src="/a.js" integrity="sha256-abc"></script>' +
+		'<script src="/d.json" integrity="sha256-xyz" type="application/json"></script>';
+	const hashes = extractExternalIntegrity(html);
+	assert.deepEqual(hashes, ["'sha256-abc'"]);
+});
+
+test("extractExternalIntegrity skips scripts without integrity", () => {
+	const html = '<script src="/a.js"></script><script>inline()</script>';
+	const hashes = extractExternalIntegrity(html);
+	assert.deepEqual(hashes, []);
+});
+
+test("extractExternalIntegrity deduplicates identical hashes", () => {
+	const html =
+		'<script src="/a.js" integrity="sha256-dup"></script>' +
+		'<script src="/a.js" integrity="sha256-dup"></script>';
+	const hashes = extractExternalIntegrity(html);
+	assert.deepEqual(hashes, ["'sha256-dup'"]);
+});
+
+test("countExternalScripts counts src-bearing script tags", () => {
+	const html =
+		'<script src="/a.js"></script>' +
+		'<script src="/b.js"></script>' +
+		"<script>inline()</script>";
+	assert.equal(countExternalScripts(html), 2);
+});
+
+test("countExternalScripts skips non-executable types", () => {
+	const html =
+		'<script src="/a.js"></script>' +
+		'<script src="/d.json" type="application/json"></script>';
+	assert.equal(countExternalScripts(html), 1);
+});
+
+test("countExternalScripts returns 0 for inline-only pages", () => {
+	assert.equal(countExternalScripts("<script>go()</script>"), 0);
 });

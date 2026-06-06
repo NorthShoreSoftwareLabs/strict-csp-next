@@ -96,16 +96,32 @@ function sanitizeScriptDirectives(
 /**
  * Build a Content-Security-Policy string for one response.
  *
- * `script-src` is owned by the library: `'self'`, the route's build-time inline
- * hashes, and a per-request nonce (omitted for pure-static routes, which pass
- * `null`). Caller additions to `script-src` are merged in, except `'unsafe-inline'`
+ * `script-src` is owned by the library. The exact shape depends on what
+ * credentials are available:
+ *
+ * - **SRI path** (`externalIntegrity` non-empty): inline hashes + integrity
+ *   hashes + `'strict-dynamic'`. No `'self'` — every initial script is
+ *   hash-pinned, and strict-dynamic propagates trust to runtime chunks.
+ *   CSP Evaluator sees green.
+ * - **Static fallback** (no nonce, no integrity hashes): `'self'` + inline
+ *   hashes (+ optional `'strict-dynamic'`). External chunks covered by
+ *   `'self'`; CSP Evaluator flags it.
+ * - **Dynamic** (nonce present): `'self'` + inline hashes + per-request nonce
+ *   (+ optional `'strict-dynamic'`).
+ *
+ * Caller additions to `script-src` are merged in, except `'unsafe-inline'`
  * and `'unsafe-eval'`, which are stripped so the strict guarantee holds. All
  * directive names and values are validated to prevent policy injection.
+ *
+ * @param externalIntegrity - SRI integrity hashes from `<script>` tags in
+ *   prerendered HTML (e.g. `['sha256-abc']`). Pass `[]` or `undefined` when
+ *   unavailable.
  */
 export function buildPolicy(
 	shellHashes: string[],
 	nonce: string | null,
 	options: StrictCspOptions = {},
+	externalIntegrity?: string[],
 ): string {
 	const isDev = process.env.NODE_ENV === "development";
 	const userDirectives = options.directives ?? {};
@@ -120,17 +136,28 @@ export function buildPolicy(
 		? (sanitizedUserDirectives["script-src"] as string[])
 		: [];
 
-	const scriptSrc = [
-		"'self'",
-		...shellHashes,
-		...(nonce ? [`'nonce-${nonce}'`] : []),
-		// 'strict-dynamic' lets the hashed/nonced root scripts vouch for the scripts
-		// they inject (GTM, Segment, next/script), so you don't hand-allowlist hosts.
-		...(options.strictDynamic ? ["'strict-dynamic'"] : []),
-		...userScriptSrc,
-		// React uses eval in dev for richer stacks; never in production.
-		...(isDev ? ["'unsafe-eval'"] : []),
-	];
+	const hasIntegrity = externalIntegrity && externalIntegrity.length > 0;
+
+	const scriptSrc = hasIntegrity
+		? [
+				// SRI path: every initial script is hash-pinned. No 'self' needed.
+				...shellHashes,
+				...externalIntegrity,
+				...(nonce ? [`'nonce-${nonce}'`] : []),
+				// Auto-enable strict-dynamic: the hash-pinned initial scripts
+				// need it to load runtime chunks without host-allowlisting.
+				"'strict-dynamic'",
+				...userScriptSrc,
+				...(isDev ? ["'unsafe-eval'"] : []),
+			]
+		: [
+				"'self'",
+				...shellHashes,
+				...(nonce ? [`'nonce-${nonce}'`] : []),
+				...(options.strictDynamic ? ["'strict-dynamic'"] : []),
+				...userScriptSrc,
+				...(isDev ? ["'unsafe-eval'"] : []),
+			];
 
 	// Inline styles: 'unsafe-inline' by default (styled-jsx and CSS-in-JS need it).
 	// Opt into nonced styles with `styleNonce: true` when a nonce is present. In
@@ -181,8 +208,9 @@ const META_INVALID = new Set([
 export function buildMetaPolicy(
 	shellHashes: string[],
 	options: StrictCspOptions = {},
+	externalIntegrity?: string[],
 ): string {
-	return buildPolicy(shellHashes, null, options)
+	return buildPolicy(shellHashes, null, options, externalIntegrity)
 		.split("; ")
 		.filter((directive) => !META_INVALID.has(directive.split(" ")[0] ?? ""))
 		.join("; ");

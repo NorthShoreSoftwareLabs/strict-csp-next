@@ -27,6 +27,15 @@ export interface RouteEntry {
 	 * prerendered HTML, e.g. ["'sha256-...'"]. Empty for purely dynamic routes.
 	 */
 	shellHashes: string[];
+	/**
+	 * CSP source expressions for external `<script src>` tags, extracted from
+	 * the `integrity` attribute added by Next.js when `experimental.sri` is
+	 * enabled. Each entry is ready to use in `script-src`
+	 * (e.g. `'sha256-abc123'`). When non-empty and `mode` is `static` or `isr`,
+	 * the policy omits `'self'` in favor of strict hash pinning + `'strict-dynamic'`.
+	 * Absent or empty for routes without integrity attributes.
+	 */
+	externalIntegrity?: string[];
 }
 
 export interface CspManifest {

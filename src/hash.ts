@@ -225,3 +225,88 @@ export function coarseExecutableCount(html: string): number {
 export function closeTagCount(html: string): number {
 	return html.match(/<\/script\s*>/gi)?.length ?? 0;
 }
+
+/**
+ * Extract CSP hash-source expressions from `integrity` attributes on external
+ * `<script src="..." integrity="sha256-H">` tags in prerendered HTML. Each
+ * returned value is ready to drop into a `script-src` directive (e.g.
+ * `'sha256-abc123'`). Only executable scripts are considered (script tags with
+ * `type="application/json"` etc. are skipped).
+ *
+ * Deduplicated and stable: each hash appears once regardless of how many tags
+ * reference the same file.
+ */
+export function extractExternalIntegrity(html: string): string[] {
+	const seen = new Set<string>();
+	const open = /<script\b/gi;
+	let m: RegExpExecArray | null;
+	// biome-ignore lint/suspicious/noAssignInExpressions: standard global-scan idiom.
+	while ((m = open.exec(html)) !== null) {
+		const parsed = parseOpenTag(html, m.index + m[0].length);
+		if (!parsed) break;
+		const src = parsed.attrs.get("src");
+		const integrity = parsed.attrs.get("integrity");
+		if (!src || !integrity) {
+			// Advance past this element's close tag so we don't re-scan it.
+			const closeIdx = findCloseTag(html, parsed.end);
+			if (closeIdx !== -1) {
+				const gt = html.indexOf(">", closeIdx);
+				open.lastIndex = gt === -1 ? html.length : gt + 1;
+			} else {
+				open.lastIndex = parsed.end;
+			}
+			continue;
+		}
+		// Skip non-executable types (data blocks, templates, etc.).
+		const type = parsed.attrs.get("type")?.trim().toLowerCase();
+		if (type && NON_EXECUTABLE_TYPES.has(type)) continue;
+		// Advance past this element's close tag.
+		const closeIdx = findCloseTag(html, parsed.end);
+		if (closeIdx !== -1) {
+			const gt = html.indexOf(">", closeIdx);
+			open.lastIndex = gt === -1 ? html.length : gt + 1;
+		} else {
+			open.lastIndex = parsed.end;
+		}
+		seen.add(`'${integrity.trim()}'`);
+	}
+	return [...seen];
+}
+
+/**
+ * Count external `<script src="...">` tags (those with a `src` attribute) in
+ * prerendered HTML. Used alongside `extractExternalIntegrity` in the self-check
+ * to detect chunks without integrity attributes. Non-executable types (data
+ * blocks, templates) are excluded.
+ */
+export function countExternalScripts(html: string): number {
+	let count = 0;
+	const open = /<script\b/gi;
+	let m: RegExpExecArray | null;
+	// biome-ignore lint/suspicious/noAssignInExpressions: standard global-scan idiom.
+	while ((m = open.exec(html)) !== null) {
+		const parsed = parseOpenTag(html, m.index + m[0].length);
+		if (!parsed) break;
+		const src = parsed.attrs.get("src");
+		const type = parsed.attrs.get("type")?.trim().toLowerCase();
+		if (!src || (type && NON_EXECUTABLE_TYPES.has(type))) {
+			const closeIdx = findCloseTag(html, parsed.end);
+			if (closeIdx !== -1) {
+				const gt = html.indexOf(">", closeIdx);
+				open.lastIndex = gt === -1 ? html.length : gt + 1;
+			} else {
+				open.lastIndex = parsed.end;
+			}
+			continue;
+		}
+		count++;
+		const closeIdx = findCloseTag(html, parsed.end);
+		if (closeIdx !== -1) {
+			const gt = html.indexOf(">", closeIdx);
+			open.lastIndex = gt === -1 ? html.length : gt + 1;
+		} else {
+			open.lastIndex = parsed.end;
+		}
+	}
+	return count;
+}

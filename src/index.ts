@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import type { HashAlgorithm } from "./types.js";
 
 export type {
 	AppliedCspHeader,
@@ -10,7 +11,12 @@ export {
 	cspHeaderForHtml,
 	withStrictCspCache,
 } from "./cache-handler.js";
-export { extractInlineHashes, hashInlineScript } from "./hash.js";
+export {
+	countExternalScripts,
+	extractExternalIntegrity,
+	extractInlineHashes,
+	hashInlineScript,
+} from "./hash.js";
 export { lookupRoute } from "./lookup.js";
 export {
 	clearManifestCache,
@@ -43,17 +49,41 @@ export type {
 	StrictCspOptions,
 } from "./types.js";
 
+export interface WithStrictCspOptions {
+	/** Hash algorithm for inline scripts and SRI. Default: "sha256". */
+	algorithm?: HashAlgorithm;
+	/** Enforce the policy or only report violations. Default: "enforce". */
+	mode?: "enforce" | "report-only";
+}
+
 /**
- * Wrap your Next.js config. v0.1 is a stable pass-through extension point: the
- * build-time hashing runs via the `strict-csp-next postbuild` CLI and the
- * request-time policy via middleware. Future versions can move that wiring here
- * without changing this signature.
+ * Wrap your Next.js config. Enables `experimental.sri` automatically so static
+ * and ISR routes get integrity hashes on their `<script>` tags, allowing the
+ * library to produce a fully strict CSP with zero `'self'` host-allowlisting.
  *
  * @example
  * // next.config.mjs
  * import { withStrictCsp } from 'strict-csp-next'
  * export default withStrictCsp({ cacheComponents: true })
+ *
+ * @example
+ * // With a custom hash algorithm
+ * export default withStrictCsp({ cacheComponents: true }, { algorithm: 'sha384' })
  */
-export function withStrictCsp(nextConfig: NextConfig = {}): NextConfig {
-	return nextConfig;
+export function withStrictCsp(
+	nextConfig: NextConfig = {},
+	options: WithStrictCspOptions = {},
+): NextConfig {
+	const algorithm = options.algorithm ?? "sha256";
+	// Enable SRI unless the user has explicitly configured it.
+	const existingSri = nextConfig.experimental?.sri;
+	const sri = existingSri !== undefined ? existingSri : { algorithm };
+
+	return {
+		...nextConfig,
+		experimental: {
+			...nextConfig.experimental,
+			sri,
+		},
+	};
 }

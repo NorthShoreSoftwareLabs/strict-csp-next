@@ -45,7 +45,10 @@ export function staticCspHeaders(
 		.map((r) => ({
 			source: r.route,
 			headers: [
-				{ key: headerName, value: buildPolicy(r.shellHashes, null, options) },
+				{
+					key: headerName,
+					value: buildPolicy(r.shellHashes, null, options, r.externalIntegrity),
+				},
 			],
 		}));
 }

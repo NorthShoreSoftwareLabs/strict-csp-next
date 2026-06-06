@@ -12,7 +12,7 @@ import {
 
 let dir;
 const inline = "<script>self.__next_f=[]</script>";
-const bundle = '<script src="/_next/x.js"></script>';
+const bundle = '<script src="/_next/x.js" integrity="sha256-abc123"></script>';
 
 before(() => {
 	dir = mkdtempSync(join(tmpdir(), "scn-"));
@@ -161,7 +161,7 @@ test("self-check does NOT flag a harmless empty <script></script>", () => {
 
 test("self-check does NOT flag an empty-bodied external script", () => {
 	const d = appDirWith(
-		'<head></head><script src="/a.js"></script><script>go()</script>',
+		'<head></head><script src="/a.js" integrity="sha256-def456"></script><script>go()</script>',
 	);
 	try {
 		const { uncovered } = runPostbuild({

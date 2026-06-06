@@ -64,7 +64,12 @@ export function planCsp(
 
 	const needsNonce = !entry || entry.mode === "ppr" || entry.mode === "dynamic";
 	const nonce = needsNonce ? generateNonce() : null;
-	const policy = buildPolicy(entry?.shellHashes ?? [], nonce, options);
+	const policy = buildPolicy(
+		entry?.shellHashes ?? [],
+		nonce,
+		options,
+		entry?.externalIntegrity,
+	);
 
 	// Only ENFORCED nonced responses must avoid caching. In report-only nothing is
 	// blocked, so a replayed nonce can't be exploited and caching is fine.

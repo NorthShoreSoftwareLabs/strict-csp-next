@@ -11,7 +11,9 @@ import { basename, dirname, join } from "node:path";
 import {
 	closeTagCount,
 	coarseExecutableCount,
+	countExternalScripts,
 	countInlineScripts,
+	extractExternalIntegrity,
 } from "./hash.js";
 import {
 	generateManifest,
@@ -73,16 +75,23 @@ export interface PostbuildResult {
 	exportFilesPatched?: number;
 	routeCount: number;
 	totalHashes: number;
+	/** Total number of external script integrity hashes across all routes. */
+	totalIntegrityHashes: number;
 	/**
-	 * Routes where the three independent signals disagree, signaling a likely
+	 * Routes where the independent signals disagree, signaling a likely
 	 * missed/misparsed script (drift): the tokenizer count, the independent coarse
-	 * regex count, and the structural open/close-tag balance.
+	 * regex count, and the structural open/close-tag balance. Also covers
+	 * external scripts missing integrity attributes.
 	 */
 	uncovered: Array<{
 		route: string;
 		inlineScripts: number;
 		coarseScripts: number;
 		reason: string;
+		/** Number of external `<script src>` tags found, if checked. */
+		externalScripts?: number;
+		/** Number of integrity hashes extracted, if checked. */
+		integrityHashes?: number;
 	}>;
 }
 
@@ -154,12 +163,14 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 	}
 
 	// Self-check from the exact source files (not a re-derived path), comparing
-	// the primary regex against an independent count to catch drift.
+	// independent counts to catch drift in Next.js script emission.
 	const uncovered: PostbuildResult["uncovered"] = [];
 	let totalHashes = 0;
+	let totalIntegrityHashes = 0;
 
 	for (const route of scanRoutes(projectDir, algorithm, distDir)) {
 		totalHashes += route.shellHashes.length;
+		totalIntegrityHashes += route.externalIntegrity?.length ?? 0;
 		let html: string;
 		try {
 			html = readFileSync(route.file, "utf8");
@@ -168,10 +179,6 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 		}
 		const inlineScripts = countInlineScripts(html);
 		const coarseScripts = coarseExecutableCount(html);
-		// Third signal: every non-self-closing <script> has one </script>. A
-		// shortfall of close tags vs opens means a tag was truncated or malformed,
-		// which the byte-exact hasher would get wrong. Self-closing script tags are
-		// not valid HTML for scripts, so opens should equal closes.
 		const opens = html.match(/<script\b/gi)?.length ?? 0;
 		const closes = closeTagCount(html);
 
@@ -186,12 +193,27 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 				`${opens} <script> open tag(s) but ${closes} </script> close tag(s)`,
 			);
 		}
+
+		// External script integrity check: count external <script src> tags vs.
+		// integrity attributes. A mismatch means some chunks lack SRI coverage,
+		// which would leave them uncovered if 'self' is dropped.
+		const externalScripts = countExternalScripts(html);
+		const integrityHashes = extractExternalIntegrity(html).length;
+		if (externalScripts > 0 && integrityHashes === 0) {
+			reasons.push(
+				`${externalScripts} external script(s) but no integrity attributes ` +
+					`(enable experimental.sri in next.config or set it via withStrictCsp)`,
+			);
+		}
+
 		if (reasons.length > 0) {
 			uncovered.push({
 				route: route.route,
 				inlineScripts,
 				coarseScripts,
 				reason: reasons.join("; "),
+				externalScripts: externalScripts > 0 ? externalScripts : undefined,
+				integrityHashes: externalScripts > 0 ? integrityHashes : undefined,
 			});
 		}
 	}
@@ -199,9 +221,9 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 	if (uncovered.length > 0 && options.failOnUncovered) {
 		const detail = uncovered.map((u) => `  ${u.route}: ${u.reason}`).join("\n");
 		throw new Error(
-			`strict-csp-next: inline-script count mismatch (possible uncovered ` +
-				`scripts). This usually means a Next.js change altered inline script ` +
-				`emission.\n${detail}`,
+			`strict-csp-next: script coverage mismatch (possible uncovered ` +
+				`scripts). This usually means a Next.js change altered script ` +
+				`emission or SRI is not enabled.\n${detail}`,
 		);
 	}
 
@@ -213,6 +235,7 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 		exportFilesPatched,
 		routeCount: manifest.routes.length,
 		totalHashes,
+		totalIntegrityHashes,
 		uncovered,
 	};
 }

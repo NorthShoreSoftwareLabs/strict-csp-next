@@ -139,3 +139,38 @@ test("styleNonce uses the nonce for style-src when a nonce is present", () => {
 	const staticCsp = buildPolicy(["'sha256-a'"], null, { styleNonce: true });
 	assert.match(staticCsp, /style-src 'self' 'unsafe-inline'/);
 });
+
+test("SRI path: externalIntegrity omits self, includes hashes and strict-dynamic", () => {
+	const csp = buildPolicy(["'sha256-abc'"], null, {}, [
+		"'sha256-xyz'",
+		"'sha256-def'",
+	]);
+	// No 'self' — scripts are hash-pinned.
+	assert.doesNotMatch(csp, /script-src[^;]*'self'/);
+	// Inline hashes present.
+	assert.match(csp, /'sha256-abc'/);
+	// Integrity hashes present.
+	assert.match(csp, /'sha256-xyz'/);
+	assert.match(csp, /'sha256-def'/);
+	// strict-dynamic is auto-enabled for runtime chunk propagation.
+	assert.match(csp, /'strict-dynamic'/);
+});
+
+test("SRI path: empty externalIntegrity falls back to self", () => {
+	const csp = buildPolicy(["'sha256-abc'"], null, {}, []);
+	assert.match(csp, /script-src 'self' 'sha256-abc'/);
+	assert.doesNotMatch(csp, /'strict-dynamic'/);
+});
+
+test("SRI path: undefined externalIntegrity falls back to self", () => {
+	const csp = buildPolicy(["'sha256-abc'"], null, {});
+	assert.match(csp, /script-src 'self' 'sha256-abc'/);
+});
+
+test("SRI path with nonce keeps nonce alongside integrity hashes", () => {
+	const csp = buildPolicy(["'sha256-shell'"], "NONCE", {}, ["'sha256-chunk'"]);
+	assert.match(csp, /'nonce-NONCE'/);
+	assert.match(csp, /'sha256-chunk'/);
+	assert.match(csp, /'strict-dynamic'/);
+	assert.doesNotMatch(csp, /script-src[^;]*'self'/);
+});

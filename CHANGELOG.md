@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Subresource Integrity (SRI) support for static/ISR routes.** When
+  `experimental.sri` is enabled (done automatically by `withStrictCsp`), the
+  library extracts `integrity` hashes from `<script>` tags in prerendered HTML
+  and pins them in `script-src`. This eliminates the `'self'` host-allowlist
+  fallback, producing a fully strict CSP that passes
+  [CSP Evaluator](https://csp-evaluator.withgoogle.com/) with zero warnings.
+  The policy shape is `<inline-hashes> <integrity-hashes> 'strict-dynamic'`
+  — every initial script is hash-pinned, and `'strict-dynamic'` propagates
+  trust to runtime chunks. No `'self'`, no nonce, no host allowlist.
+- **`withStrictCsp` now accepts library options.** `withStrictCsp(config, {
+  algorithm?: 'sha256' | 'sha384' | 'sha512', mode?: 'enforce' |
+  'report-only' })`. The `algorithm` option controls both inline-script hashing
+  and the SRI algorithm (default `sha256`).
+- **`withStrictCsp` automatically enables `experimental.sri`.** Users no longer
+  need to configure `experimental.sri` in their Next.js config — the wrapper
+  injects it with the matching algorithm. Explicit user configuration is
+  respected when present.
+- **Self-check now covers external scripts.** The postbuild three-signal guard
+  also counts external `<script src>` tags vs. integrity attributes, flagging
+  uncovered chunks when `failOnUncovered` is set.
+- New exports: `extractExternalIntegrity`, `countExternalScripts`.
+
 ## [0.2.0] - 2026-06-05
 
 ### Changed
