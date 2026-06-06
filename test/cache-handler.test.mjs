@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
 	applyCspHeader,
 	cspHeaderForHtml,
+	resetVercelWarning,
 	withStrictCspCache,
 } from "../dist/cache-handler.js";
 import { buildPolicy, extractInlineHashes } from "../dist/index.js";
@@ -139,6 +140,48 @@ test("withStrictCspCache passes non-APP_PAGE entries through untouched", async (
 	const fetchValue = { kind: "FETCH", data: { body: "x" } };
 	await handler.set("key", fetchValue, {});
 	assert.deepEqual(handler.persisted[0].data, fetchValue);
+});
+
+test("withStrictCspCache warns loudly when instantiated on Vercel", () => {
+	resetVercelWarning();
+	const prev = process.env.VERCEL;
+	process.env.VERCEL = "1";
+	const original = console.warn;
+	let warned = "";
+	console.warn = (msg) => {
+		warned += msg;
+	};
+	try {
+		const Wrapped = withStrictCspCache(FakeBaseCache);
+		new Wrapped();
+		assert.match(warned, /NO EFFECT on Vercel/);
+	} finally {
+		console.warn = original;
+		if (prev === undefined) delete process.env.VERCEL;
+		else process.env.VERCEL = prev;
+	}
+});
+
+test("withStrictCspCache stays quiet off Vercel", () => {
+	resetVercelWarning();
+	const prev = process.env.VERCEL;
+	const prevEnv = process.env.VERCEL_ENV;
+	delete process.env.VERCEL;
+	delete process.env.VERCEL_ENV;
+	const original = console.warn;
+	let warned = "";
+	console.warn = (msg) => {
+		warned += msg;
+	};
+	try {
+		const Wrapped = withStrictCspCache(FakeBaseCache);
+		new Wrapped();
+		assert.doesNotMatch(warned, /Vercel/);
+	} finally {
+		console.warn = original;
+		if (prev !== undefined) process.env.VERCEL = prev;
+		if (prevEnv !== undefined) process.env.VERCEL_ENV = prevEnv;
+	}
 });
 
 test("withStrictCspCache swallows a base set() failure (no 500 on read-only FS)", async () => {

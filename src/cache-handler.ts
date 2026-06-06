@@ -174,6 +174,38 @@ export function resetDriftWarnings(): void {
 	warnedDrift.clear();
 }
 
+/** Reset the one-time Vercel warning state. Exposed for tests. */
+export function resetVercelWarning(): void {
+	warnedVercel = false;
+}
+
+/** True on Vercel's build and runtime environments (Vercel sets `VERCEL=1`). */
+function isVercel(): boolean {
+	return process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
+}
+
+let warnedVercel = false;
+
+function warnVercelOnce(): void {
+	if (warnedVercel) return;
+	warnedVercel = true;
+	console.warn(
+		"\n" +
+			"┌──────────────────────────────────────────────────────────────────────┐\n" +
+			"│  strict-csp-next: withStrictCspCache has NO EFFECT on Vercel.          │\n" +
+			"│                                                                        │\n" +
+			"│  Vercel ignores a custom Next.js cacheHandler and serves ISR from its  │\n" +
+			"│  own edge, so the strict CSP this handler generates never reaches the  │\n" +
+			"│  browser. Your ISR and prerendered routes are being served WITHOUT a   │\n" +
+			"│  strict Content-Security-Policy.                                       │\n" +
+			"│                                                                        │\n" +
+			"│  This handler is for SELF-HOSTED Next (next start / Docker). On Vercel │\n" +
+			"│  use the static (vercel.json) or nonce (proxy) paths instead.          │\n" +
+			"│  See the strict-csp-next deployment docs.                              │\n" +
+			"└──────────────────────────────────────────────────────────────────────┘\n",
+	);
+}
+
 let warnedSetFailed = false;
 
 function warnSetFailedOnce(error: unknown): void {
@@ -246,6 +278,13 @@ export function withStrictCspCache<TBase extends NextCacheHandlerCtor>(
 ): TBase {
 	const { routeFilter } = options;
 	class StrictCspCache extends Base {
+		// biome-ignore lint/suspicious/noExplicitAny: forward the base constructor's args unchanged.
+		constructor(...args: any[]) {
+			super(...args);
+			// Fires when Next instantiates the handler (build and runtime), so the
+			// warning is loud and early rather than a silent no-op in production.
+			if (isVercel()) warnVercelOnce();
+		}
 		async set(key: string, data: unknown, ctx: unknown): Promise<void> {
 			if (isCachedAppPage(data) && (!routeFilter || routeFilter(key))) {
 				const { headers, driftReason } = applyCspHeader(
