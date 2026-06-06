@@ -174,6 +174,22 @@ export function resetDriftWarnings(): void {
 	warnedDrift.clear();
 }
 
+let warnedSetFailed = false;
+
+function warnSetFailedOnce(error: unknown): void {
+	if (warnedSetFailed) return;
+	warnedSetFailed = true;
+	const message = error instanceof Error ? error.message : String(error);
+	console.warn(
+		`strict-csp-next: the wrapped cache handler's set() threw (${message}). ` +
+			`The page still renders (the CSP header was already written), but the ` +
+			`entry was not cached. The usual cause is a read-only filesystem on a ` +
+			`serverless host: this cache handler is for self-hosted Next (next start ` +
+			`/ Docker), not Vercel, which ignores a custom cacheHandler. See the ` +
+			`deployment notes.`,
+	);
+}
+
 type NextCacheHandlerCtor = new (
 	// A mixin base must be a constructor with an open argument list.
 	// biome-ignore lint/suspicious/noExplicitAny: required shape for a mixin constructor.
@@ -198,6 +214,14 @@ export interface WithStrictCspCacheOptions extends StrictCspOptions {
  * header whose hashes match its exact bytes. Use it to cover `isr` routes (and
  * any other on-demand-revalidated page) without a nonce and without giving up CDN
  * caching.
+ *
+ * **Self-hosted only.** This works because Next replays the cache entry's headers
+ * when it serves the page (`next start`, Docker `standalone`, any Node host).
+ * **Vercel ignores a custom `cacheHandler`** and owns the ISR cache itself, so the
+ * header set here never reaches the edge there — verified against a real deploy,
+ * and confirmed by the Vercel team (vercel/next.js#52203). On Vercel, strict CSP
+ * for `isr` with changing data is not achievable this way; use static hashes for
+ * unchanging content or the nonce path. See the deployment notes.
  *
  * Wire it in a small project file that Next can load as `cacheHandler`, composing
  * the built-in filesystem cache (or your own Redis/etc. handler) as the base:
@@ -238,7 +262,15 @@ export function withStrictCspCache<TBase extends NextCacheHandlerCtor>(
 				// is replayed from the persisted entry as before.
 				data.headers = headers;
 			}
-			await super.set(key, data, ctx);
+			// A base-handler write failure must not crash the response: the header is
+			// already on `data`, which Next sends for the fill render, so swallow and
+			// warn (the page renders uncached) rather than turning a read-only-FS
+			// write error into a 500.
+			try {
+				await super.set(key, data, ctx);
+			} catch (error) {
+				warnSetFailedOnce(error);
+			}
 		}
 	}
 	return StrictCspCache;

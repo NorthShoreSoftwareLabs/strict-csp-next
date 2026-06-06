@@ -141,6 +141,28 @@ test("withStrictCspCache passes non-APP_PAGE entries through untouched", async (
 	assert.deepEqual(handler.persisted[0].data, fetchValue);
 });
 
+test("withStrictCspCache swallows a base set() failure (no 500 on read-only FS)", async () => {
+	// A serverless host with a read-only filesystem makes the base handler's write
+	// throw. The wrapper must not let that crash the response: the header is
+	// already written, so it resolves (page renders uncached) rather than throwing.
+	class ThrowingCache {
+		async set() {
+			throw new Error("EROFS: read-only file system");
+		}
+		async get() {
+			return null;
+		}
+	}
+	const Wrapped = withStrictCspCache(ThrowingCache);
+	const handler = new Wrapped();
+	const value = { kind: "APP_PAGE", html: PAGE, headers: {} };
+	await handler.set("/x", value, {}); // must not throw
+	assert.equal(
+		value.headers["content-security-policy"],
+		buildPolicy(extractInlineHashes(PAGE), null),
+	);
+});
+
 test("withStrictCspCache routeFilter scopes which routes get a policy", async () => {
 	const Wrapped = withStrictCspCache(FakeBaseCache, {
 		routeFilter: (key) => key.startsWith("/projects/"),
