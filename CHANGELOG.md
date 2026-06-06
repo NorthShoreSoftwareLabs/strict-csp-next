@@ -19,6 +19,10 @@ All notable changes to this project are documented here. The format follows
   read-only filesystem on a serverless host) instead of letting it 500 the page;
   the header is already written, so the page renders uncached and a one-time
   warning explains the cause.
+- `withStrictCspCache` prints a loud, boxed one-time warning when instantiated on
+  Vercel (`process.env.VERCEL`), so a no-op deployment is impossible to miss in the
+  build and function logs rather than silently shipping ISR routes without a CSP.
+  The build still succeeds.
 
 ### Added
 
