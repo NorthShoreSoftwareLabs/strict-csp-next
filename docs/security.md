@@ -91,9 +91,12 @@ A hash matches exact bytes. An ISR route whose inline data changes on
 revalidation will not match a hash frozen in `vercel.json` at build time. Two
 ways to keep such a route strict and correct:
 
-- **Cache handler (keeps caching).** `withStrictCspCache` recomputes the hash at
-  cache-write time, so the policy tracks the bytes on every revalidation. The
-  route stays CDN-cacheable with no nonce. Pair it with `injectPrerenderMetaCsp`
+- **Cache handler (keeps caching, self-hosted only).** `withStrictCspCache`
+  recomputes the hash at cache-write time, so the policy tracks the bytes on every
+  revalidation. The route stays cacheable with no nonce. This relies on Next
+  replaying the cache entry's headers, so it works on `next start` / Docker but
+  **not on Vercel**, which ignores a custom `cacheHandler`. Pair it with
+  `injectPrerenderMetaCsp`
   (in postbuild) so the build-time prerender is covered before the first
   revalidation, and keep it out of the build-frozen set with
   `staticCspHeaders(manifest, opts, { includeIsr: false })`. Every cache state is

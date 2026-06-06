@@ -52,13 +52,26 @@ to not conflict (see [deployment](./deployment.md#keeping-static-routes-cdn-term
   misses will not hydrate, because its hash is absent and there is no nonce to
   fall back to. A miss on a dynamic or PPR route is safe, since Next stamps the
   nonce. Verify static routes are covered.
+- **The cache handler is self-hosted only.** `withStrictCspCache` works by having
+  Next replay the cache entry's headers when it serves the page. Vercel ignores a
+  custom `cacheHandler` and owns the ISR cache itself, so the header never reaches
+  the edge there (verified on a real deploy; stated by the Vercel team in
+  [vercel/next.js#52203](https://github.com/vercel/next.js/discussions/52203)). Use
+  it on `next start`, Docker `standalone`, or any Node host. On Vercel, an `isr`
+  route whose inline data changes has no hash path; serve it dynamically with a
+  nonce or keep the data stable.
 - **Build-frozen hashes assume stable bytes.** An ISR route whose inline data
   changes on revalidation will not match a hash frozen in `vercel.json` at build
-  time. Cover it with the cache handler (`withStrictCspCache`), which recomputes
-  the hash on every revalidation, plus `injectPrerenderMetaCsp` for the build-time
-  prerender, and keep it out of the static-header set with
+  time. Self-hosted, cover it with the cache handler (`withStrictCspCache`), which
+  recomputes the hash on every revalidation, plus `injectPrerenderMetaCsp` for the
+  build-time prerender, and keep it out of the static-header set with
   `staticCspHeaders(manifest, opts, { includeIsr: false })`. Without the cache
   handler, route such pages through the nonce path instead.
+- **Vercel needs a pinned build id for `static` / `ppr` hashes.** Next stamps a
+  fresh `buildId` into the inline RSC payload each build, and the client chunk
+  filenames it embeds are environment-specific. So the imported manifest must come
+  from a build on the deploy host, and `generateBuildId` must be pinned, or one
+  shell script per page is left uncovered. See [deployment](./deployment.md#vercel-and-other-bundledserverless-hosts).
 - **Cache-fill coverage is undocumented Next behavior.** The cache handler covers
   the cache-fill `MISS` render by writing the header onto the same value object
   Next sends, in place, which works because Next 16 awaits the cache `set` before

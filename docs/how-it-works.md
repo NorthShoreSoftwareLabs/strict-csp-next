@@ -115,6 +115,15 @@ matching policy onto that same entry's headers. Body and header are cached
 atomically and revalidate together, so the hashes always match the bytes the
 browser receives, even after the inline data changed.
 
+> **Self-hosted only.** This relies on Next replaying the cache entry's headers
+> when it serves the page, which `next start` and Docker `standalone` do. Vercel
+> ignores a custom `cacheHandler` and serves ISR from its own edge, so the header
+> never reaches the browser there (verified on a real deploy;
+> [vercel/next.js#52203](https://github.com/vercel/next.js/discussions/52203)). On
+> Vercel, an `isr` route with changing data has no hash-based path; use a nonce
+> (dynamic) or keep the data stable. The rest of this section is about self-hosted
+> behavior.
+
 It runs the same three-signal self-check the build step does. If the counts ever
 disagree on a revalidated page, it omits the CSP header from that entry (and logs
 once) rather than cache a policy that might block, so the route falls back to the

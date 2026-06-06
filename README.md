@@ -33,17 +33,21 @@ Different rendering modes need different credentials, because a hash needs bytes
 known at build and a nonce needs a fresh value per request. The package picks the
 right one per route:
 
-| Mode | Credential | Cacheable |
-| --- | --- | --- |
-| `static` | build-time hashes of the shell's inline scripts | yes |
-| `isr` | hashes recomputed on every revalidation (cache handler) | yes |
-| `ppr` | hashes for the shell **and** a per-request nonce for the resume | no (nonced) |
-| `dynamic` | a per-request nonce | no (nonced) |
+| Mode | Credential | Cacheable | Vercel | Self-hosted |
+| --- | --- | --- | --- | --- |
+| `static` | build-time hashes of the shell's inline scripts | yes | yes | yes |
+| `isr`, stable inline data | build-time hashes (treated as static) | yes | yes | yes |
+| `isr`, changing inline data | hashes recomputed on every revalidation (cache handler) | yes | **no** | yes |
+| `ppr` | hashes for the shell **and** a per-request nonce for the resume | no (nonced) | yes | yes |
+| `dynamic` | a per-request nonce | no (nonced) | yes | yes |
 
-`isr` revalidates with changing data, so its inline-script bytes change. The
-cache handler (`withStrictCspCache`) recomputes the hash at cache-write time so
-the policy tracks the bytes; the route stays cacheable with no nonce. See
-[how it works](./docs/how-it-works.md#3-the-cache-handler-isr).
+The one mode that does not work on Vercel is `isr` whose inline data changes on
+revalidation. That needs the cache handler (`withStrictCspCache`), which
+recomputes the hash at cache-write time, and Vercel ignores a custom
+`cacheHandler` and owns the ISR cache itself, so the header never reaches the
+edge. It works on self-hosted Next (`next start`, Docker). Everything else works
+on both. See [how it works](./docs/how-it-works.md#3-the-cache-handler-isr) and
+[deployment](./docs/deployment.md).
 
 A PPR route carries both in one header:
 `script-src 'self' 'sha256-<shell>' 'nonce-<per request>'`. The insight that makes
@@ -128,7 +132,7 @@ Every option, the CLI, and the lower-level exports are in the
 | Host | How the manifest reaches the proxy |
 | --- | --- |
 | Self-hosted Node | Read from disk next to the process. Nothing extra. |
-| Vercel / serverless | Trace it into the proxy bundle with `outputFileTracingIncludes`, or pass it to `createStrictCsp({ manifest })`. |
+| Vercel / serverless | Import it via `createStrictCsp({ manifest })` and pin `generateBuildId` — the runtime disk read is unreliable in Vercel's middleware bundle. The manifest must come from a build on the deploy host. |
 | Docker (`standalone`) | The build step copies it into the bundle. |
 | Static export | No server. The policy ships as a `<meta>` tag via `postbuild --export`. |
 

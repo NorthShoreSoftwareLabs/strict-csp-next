@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The cache handler is documented as self-hosted only.** `withStrictCspCache`
+  relies on Next replaying a cache entry's headers when it serves the page, which
+  `next start` / Docker do but Vercel does not (Vercel ignores a custom
+  `cacheHandler` and owns the ISR cache). Verified on a real Vercel deploy. The
+  README mode table, how-it-works, deployment, security, and compatibility docs now
+  state this, and the Vercel deployment guide adds the `generateBuildId`-pinning and
+  build-host manifest requirements for `static` / `ppr` hash delivery.
+- `withStrictCspCache` now swallows a wrapped-handler `set()` failure (e.g. a
+  read-only filesystem on a serverless host) instead of letting it 500 the page;
+  the header is already written, so the page renders uncached and a one-time
+  warning explains the cause.
+
 ### Added
 
 - `strict-csp-next/cache-handler`: cache-write-time CSP for ISR. `withStrictCspCache`
