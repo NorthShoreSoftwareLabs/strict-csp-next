@@ -11,11 +11,14 @@ export {
 	cspHeaderForHtml,
 	withStrictCspCache,
 } from "./cache-handler.js";
+export type { ScriptToken } from "./hash.js";
 export {
 	countExternalScripts,
+	countUncoveredExternalScripts,
 	extractExternalIntegrity,
 	extractInlineHashes,
 	hashInlineScript,
+	scanScripts,
 } from "./hash.js";
 export { lookupRoute } from "./lookup.js";
 export {

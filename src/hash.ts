@@ -22,6 +22,28 @@ export interface InlineScript {
 }
 
 /**
+ * One `<script>` element from a single tokenizer pass. The four extractors and
+ * counters below are thin filters over `scanScripts`, so the scan-and-advance
+ * logic lives in exactly one place.
+ */
+export interface ScriptToken {
+	/** Lower-cased attribute names present on the open tag, mapped to values. */
+	attrs: Map<string, string>;
+	/** The `src` attribute value, or undefined for inline scripts. */
+	src?: string;
+	/** The `integrity` attribute value, or undefined when absent. */
+	integrity?: string;
+	/** The script body (text between the open and close tags). */
+	body: string;
+	/** Byte offset of the start of the open tag (`<script`) in the source HTML. */
+	openStart: number;
+	/** Byte offset just past the open tag's `>`. */
+	openEnd: number;
+	/** Byte offset of the matching `</script`, or -1 if unterminated. */
+	closeStart: number;
+}
+
+/**
  * Parse the attributes of a `<script ...>` open tag starting at `start` (the
  * index just past `<script`). Quoted values are respected, so a `>` or a
  * `src=`-looking substring INSIDE a quoted attribute value does not terminate
@@ -128,36 +150,70 @@ function isExecutable(attrs: Map<string, string>): boolean {
 }
 
 /**
- * Tokenize every `<script>` element in an HTML string, classifying each as
- * executable-and-bare or not. Quote-aware, so it is not fooled by `>` or
- * `src=`/`nonce=` text inside a quoted attribute value. This is the single
- * source of truth for both hashing and counting.
+ * The single tokenizer pass. Walk every `<script>` element once, returning each
+ * with its attributes, `src`, `integrity`, body, and byte offsets. Quote-aware,
+ * so it is not fooled by `>` or `src=`/`nonce=` text inside a quoted attribute
+ * value. Every other extractor and counter in this module is a thin filter over
+ * this one pass, so the scan-and-advance boilerplate exists in exactly one place
+ * (the drift the centralized tokenizer is meant to prevent).
  */
-export function scanInlineScripts(html: string): InlineScript[] {
-	const out: InlineScript[] = [];
+export function scanScripts(html: string): ScriptToken[] {
+	const out: ScriptToken[] = [];
 	const open = /<script\b/gi;
 	let m: RegExpExecArray | null;
 	// biome-ignore lint/suspicious/noAssignInExpressions: regex.exec() in the loop condition is the standard global-scan idiom (lastIndex advances; null ends it).
 	while ((m = open.exec(html)) !== null) {
-		const parsed = parseOpenTag(html, m.index + m[0].length);
+		const openStart = m.index;
+		const parsed = parseOpenTag(html, openStart + m[0].length);
 		if (!parsed) break; // unterminated tag; stop rather than mis-hash
-		const executable = isExecutable(parsed.attrs);
 
 		// Find the matching close tag from the end of the open tag.
 		let body = "";
-		const closeIdx = findCloseTag(html, parsed.end);
-		if (closeIdx !== -1) {
-			body = html.slice(parsed.end, closeIdx);
+		const closeStart = findCloseTag(html, parsed.end);
+		if (closeStart !== -1) {
+			body = html.slice(parsed.end, closeStart);
 			// Advance the open-tag scanner past this element's close tag.
-			const gt = html.indexOf(">", closeIdx);
+			const gt = html.indexOf(">", closeStart);
 			open.lastIndex = gt === -1 ? html.length : gt + 1;
 		} else {
+			// Unterminated close: advance past the open tag so we never re-scan it
+			// (the bug the duplicated loops had — one branch forgot this).
 			open.lastIndex = parsed.end;
 		}
 
-		out.push({ body, attrs: parsed.attrs, executable });
+		out.push({
+			attrs: parsed.attrs,
+			src: parsed.attrs.get("src"),
+			integrity: parsed.attrs.get("integrity"),
+			body,
+			openStart,
+			openEnd: parsed.end,
+			closeStart,
+		});
 	}
 	return out;
+}
+
+/**
+ * True when a tokenized script tag is NOT one of the inert `type` values the
+ * browser never executes. External `<script src>` tags pass this (they execute),
+ * so it is the shared executable-type filter for both inline and external scans.
+ */
+function isExecutableType(attrs: Map<string, string>): boolean {
+	const type = attrs.get("type")?.trim().toLowerCase();
+	return !(type && NON_EXECUTABLE_TYPES.has(type));
+}
+
+/**
+ * Tokenize every `<script>` element in an HTML string, classifying each as
+ * executable-and-bare or not. Derived from the single `scanScripts` pass.
+ */
+export function scanInlineScripts(html: string): InlineScript[] {
+	return scanScripts(html).map((s) => ({
+		body: s.body,
+		attrs: s.attrs,
+		executable: isExecutable(s.attrs),
+	}));
 }
 
 export function hashInlineScript(
@@ -238,75 +294,42 @@ export function closeTagCount(html: string): number {
  */
 export function extractExternalIntegrity(html: string): string[] {
 	const seen = new Set<string>();
-	const open = /<script\b/gi;
-	let m: RegExpExecArray | null;
-	// biome-ignore lint/suspicious/noAssignInExpressions: standard global-scan idiom.
-	while ((m = open.exec(html)) !== null) {
-		const parsed = parseOpenTag(html, m.index + m[0].length);
-		if (!parsed) break;
-		const src = parsed.attrs.get("src");
-		const integrity = parsed.attrs.get("integrity");
-		if (!src || !integrity) {
-			// Advance past this element's close tag so we don't re-scan it.
-			const closeIdx = findCloseTag(html, parsed.end);
-			if (closeIdx !== -1) {
-				const gt = html.indexOf(">", closeIdx);
-				open.lastIndex = gt === -1 ? html.length : gt + 1;
-			} else {
-				open.lastIndex = parsed.end;
-			}
-			continue;
-		}
-		// Skip non-executable types (data blocks, templates, etc.).
-		const type = parsed.attrs.get("type")?.trim().toLowerCase();
-		if (type && NON_EXECUTABLE_TYPES.has(type)) continue;
-		// Advance past this element's close tag.
-		const closeIdx = findCloseTag(html, parsed.end);
-		if (closeIdx !== -1) {
-			const gt = html.indexOf(">", closeIdx);
-			open.lastIndex = gt === -1 ? html.length : gt + 1;
-		} else {
-			open.lastIndex = parsed.end;
-		}
-		seen.add(`'${integrity.trim()}'`);
+	for (const s of scanScripts(html)) {
+		if (!s.src || !s.integrity) continue;
+		if (!isExecutableType(s.attrs)) continue;
+		seen.add(`'${s.integrity.trim()}'`);
 	}
 	return [...seen];
 }
 
 /**
- * Count external `<script src="...">` tags (those with a `src` attribute) in
- * prerendered HTML. Used alongside `extractExternalIntegrity` in the self-check
- * to detect chunks without integrity attributes. Non-executable types (data
- * blocks, templates) are excluded.
+ * Count executable external `<script src="...">` tags (those with a `src`
+ * attribute) in prerendered HTML. Used alongside `extractExternalIntegrity` in
+ * the self-check. Non-executable types (data blocks, templates) are excluded.
+ * Counts per tag, NOT deduped by file — shared chunks across tags each count.
  */
 export function countExternalScripts(html: string): number {
 	let count = 0;
-	const open = /<script\b/gi;
-	let m: RegExpExecArray | null;
-	// biome-ignore lint/suspicious/noAssignInExpressions: standard global-scan idiom.
-	while ((m = open.exec(html)) !== null) {
-		const parsed = parseOpenTag(html, m.index + m[0].length);
-		if (!parsed) break;
-		const src = parsed.attrs.get("src");
-		const type = parsed.attrs.get("type")?.trim().toLowerCase();
-		if (!src || (type && NON_EXECUTABLE_TYPES.has(type))) {
-			const closeIdx = findCloseTag(html, parsed.end);
-			if (closeIdx !== -1) {
-				const gt = html.indexOf(">", closeIdx);
-				open.lastIndex = gt === -1 ? html.length : gt + 1;
-			} else {
-				open.lastIndex = parsed.end;
-			}
-			continue;
-		}
+	for (const s of scanScripts(html)) {
+		if (!s.src || !isExecutableType(s.attrs)) continue;
 		count++;
-		const closeIdx = findCloseTag(html, parsed.end);
-		if (closeIdx !== -1) {
-			const gt = html.indexOf(">", closeIdx);
-			open.lastIndex = gt === -1 ? html.length : gt + 1;
-		} else {
-			open.lastIndex = parsed.end;
-		}
+	}
+	return count;
+}
+
+/**
+ * Count executable external `<script src>` tags that LACK an `integrity`
+ * attribute — the per-tag uncovered count that the coverage gate keys on. This
+ * is deliberately per-tag (not a dedup-count comparison): two tags sharing one
+ * file but only one carrying integrity would false-pass a dedup equality, yet
+ * the un-pinned tag is still blocked under `'strict-dynamic'`. Non-executable
+ * types are excluded.
+ */
+export function countUncoveredExternalScripts(html: string): number {
+	let count = 0;
+	for (const s of scanScripts(html)) {
+		if (!s.src || !isExecutableType(s.attrs)) continue;
+		if (!s.integrity || s.integrity.trim() === "") count++;
 	}
 	return count;
 }
