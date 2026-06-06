@@ -64,7 +64,20 @@ export function planCsp(
 
 	const needsNonce = !entry || entry.mode === "ppr" || entry.mode === "dynamic";
 	const nonce = needsNonce ? generateNonce() : null;
-	const policy = buildPolicy(entry?.shellHashes ?? [], nonce, options);
+	// The SRI `'self'`-drop applies to the static/ISR hash path only (the modes
+	// documented on RouteEntry.externalIntegrity). Nonce-bearing routes (PPR /
+	// dynamic) cover every script with the per-request nonce + strict-dynamic, so
+	// they neither need nor should branch on integrity here. Passing integrity
+	// only for the hash-only path keeps `buildPolicy`'s gating intent and the doc
+	// aligned (#8a).
+	const useIntegrity = !needsNonce;
+	const policy = buildPolicy(
+		entry?.shellHashes ?? [],
+		nonce,
+		options,
+		useIntegrity ? entry?.externalIntegrity : undefined,
+		useIntegrity ? entry?.uncoveredExternal : undefined,
+	);
 
 	// Only ENFORCED nonced responses must avoid caching. In report-only nothing is
 	// blocked, so a replayed nonce can't be exploited and caching is fine.

@@ -39,3 +39,29 @@ test("report-only mode changes the header key", () => {
 test("null manifest yields no entries", () => {
 	assert.deepEqual(staticCspHeaders(null), []);
 });
+
+test("static headers omit self when externalIntegrity is present", () => {
+	const sriManifest = {
+		version: 1,
+		algorithm: "sha256",
+		routes: [
+			{
+				route: "/",
+				mode: "static",
+				shellHashes: ["'sha256-inline'"],
+				externalIntegrity: ["'sha256-chunk'"],
+				uncoveredExternal: 0,
+			},
+		],
+	};
+	const entries = staticCspHeaders(sriManifest);
+	const value = entries[0].headers[0].value;
+	// No 'self' — SRI path.
+	assert.doesNotMatch(value, /script-src[^;]*'self'/);
+	// Inline hash present.
+	assert.match(value, /'sha256-inline'/);
+	// Integrity hash present.
+	assert.match(value, /'sha256-chunk'/);
+	// strict-dynamic auto-enabled.
+	assert.match(value, /'strict-dynamic'/);
+});

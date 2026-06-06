@@ -6,6 +6,68 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Subresource Integrity (SRI) support for static/ISR routes.** When
+  `experimental.sri` is enabled (done automatically by `withStrictCsp`), the
+  library extracts `integrity` hashes from `<script>` tags in prerendered HTML
+  and pins them in `script-src`. With **full** external-script coverage the
+  policy drops `'self'` and adds `'strict-dynamic'`, producing
+  `<inline-hashes> <integrity-hashes> 'strict-dynamic'` — every initial script
+  is hash-pinned and `'strict-dynamic'` propagates trust to runtime chunks, with
+  no `'self'`, no nonce, and no host allowlist (green on
+  [CSP Evaluator](https://csp-evaluator.withgoogle.com/)).
+- **Integrity backfill (`runPostbuild({ backfillIntegrity: true })`, bin
+  `--backfill`).** Next stamps integrity on its bootstrap chunks but leaves the
+  client-component chunks un-pinned. The backfill hashes each un-pinned chunk's
+  on-disk bytes (`base64(sha256(bytes))`, which matches Next's integrity exactly)
+  and injects the `integrity` attribute into the prerendered HTML, so coverage
+  reaches 100% and the policy can legitimately drop `'self'`. Idempotent
+  (re-running never double-injects) and scoped to static/ISR output; the
+  PPR/dynamic nonce path is never touched.
+- **Asset-origin awareness + `crossOrigin` option** (`'auto'` default, or
+  `'anonymous' | 'use-credentials' | false`; bin `--cross-origin=`). Same-origin
+  assets get `integrity` only (matching what Next does for its own SRI tags);
+  a cross-origin `assetPrefix` (CDN on another host) gets
+  `crossorigin="anonymous"` plus a build-time note that the CDN must return
+  `Access-Control-Allow-Origin` or the browser blocks the script as an SRI
+  failure.
+- **`withStrictCsp` automatically enables `experimental.sri`** and accepts
+  `{ algorithm?: 'sha256' | 'sha384' | 'sha512' }` (default `sha256`). Explicit
+  user `experimental.sri` config is respected; a mismatched `algorithm` option
+  is ignored with a warning so inline-hash and SRI algorithms do not diverge.
+- **Self-check now covers external scripts, per tag.** The postbuild guard
+  counts external `<script src>` tags that lack an `integrity` attribute and
+  flags any per-tag shortfall (not only the all-zero case) when
+  `failOnUncovered` is set, distinguishing "SRI not enabled" from "SRI enabled
+  but coverage incomplete."
+- New exports: `extractExternalIntegrity`, `countExternalScripts`,
+  `countUncoveredExternalScripts`, `scanScripts`, `backfillIntegrity`,
+  `makeAssetResolver`, `isCrossOrigin`, and the `RouteEntry.uncoveredExternal`
+  field.
+
+### Fixed
+
+- **Partial SRI coverage no longer ships a broken page.** Previously the policy
+  dropped `'self'` and forced `'strict-dynamic'` whenever *any* integrity hash
+  was present, which blocked the un-pinned parser-inserted chunks that real
+  Turbopack output leaves uncovered. The `'self'`-drop now requires **every**
+  external script on the route to be hash-pinned; with any un-pinned chunk the
+  policy keeps the safe `'self' <inline> <integrity>` shape and omits
+  `'strict-dynamic'`.
+
+### Changed
+
+- **`mode` is set at delivery time, not on `withStrictCsp`.** The previously
+  advertised `withStrictCsp(config, { mode })` was a no-op (the config wrapper
+  never reaches the code that chooses the header name) and has been removed. Set
+  `mode: 'report-only'` on the `StrictCspOptions` passed to `createStrictCsp`,
+  `runPostbuild({ headerOptions })`, `staticCspHeaders`,
+  `injectPrerenderMetaCsp`, or the cache handler — the working path that selects
+  `Content-Security-Policy-Report-Only` end to end.
+- Internal: the script tokenizer is centralized into a single `scanScripts`
+  pass; the inline/external extractors and counters are thin filters over it.
+
 ## [0.2.0] - 2026-06-05
 
 ### Changed

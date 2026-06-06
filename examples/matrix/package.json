@@ -13,7 +13,7 @@
     "next": "^16.2.7",
     "react": "^19",
     "react-dom": "^19",
-    "strict-csp-next": "file:../../strict-csp-next-0.1.0.tgz"
+    "strict-csp-next": "file:../../strict-csp-next.tgz"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

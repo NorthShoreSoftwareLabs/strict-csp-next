@@ -1,6 +1,10 @@
 import { type Dirent, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { extractInlineHashes } from "./hash.js";
+import {
+	countUncoveredExternalScripts,
+	extractExternalIntegrity,
+	extractInlineHashes,
+} from "./hash.js";
 import type {
 	CspManifest,
 	HashAlgorithm,
@@ -31,6 +35,41 @@ interface PrerenderEntry {
 
 interface PrerenderManifest {
 	routes?: Record<string, PrerenderEntry>;
+}
+
+/**
+ * Read `basePath` / `assetPrefix` from the build's own manifests. Both are
+ * `''` on a default deployment. `routes-manifest.json` carries `basePath`;
+ * `required-server-files.json` carries the resolved config (including
+ * `assetPrefix`) on server builds. For `output: 'export'` there is no
+ * required-server-files, so `assetPrefix` falls back to ''.
+ */
+export function readAssetConfig(
+	projectDir: string,
+	distDir?: string,
+): { basePath: string; assetPrefix: string } {
+	const root = resolveDistDir(projectDir, distDir);
+	let basePath = "";
+	let assetPrefix = "";
+	try {
+		const routes = JSON.parse(
+			readFileSync(join(root, "routes-manifest.json"), "utf8"),
+		);
+		if (typeof routes.basePath === "string") basePath = routes.basePath;
+	} catch {
+		// no routes-manifest (export builds may still have one); leave defaults
+	}
+	try {
+		const rsf = JSON.parse(
+			readFileSync(join(root, "required-server-files.json"), "utf8"),
+		);
+		const cfg = rsf?.config ?? {};
+		if (typeof cfg.assetPrefix === "string") assetPrefix = cfg.assetPrefix;
+		if (!basePath && typeof cfg.basePath === "string") basePath = cfg.basePath;
+	} catch {
+		// export builds have no required-server-files; assetPrefix stays ''
+	}
+	return { basePath, assetPrefix };
 }
 
 function readPrerenderManifest(
@@ -146,8 +185,17 @@ export function scanRoutes(
 		if (byRoute.has(route)) continue; // keep first on a collision
 		const html = readFileSync(file, "utf8");
 		const shellHashes = extractInlineHashes(html, algorithm);
+		const externalIntegrity = extractExternalIntegrity(html);
+		const uncoveredExternal = countUncoveredExternalScripts(html);
 		const mode = classifyRoute(prerenderManifest, route);
-		byRoute.set(route, { route, mode, shellHashes, file });
+		byRoute.set(route, {
+			route,
+			mode,
+			shellHashes,
+			externalIntegrity,
+			uncoveredExternal,
+			file,
+		});
 	}
 
 	return [...byRoute.values()].sort((a, b) => a.route.localeCompare(b.route));
@@ -165,7 +213,21 @@ export function generateManifest(
 	distDir?: string,
 ): CspManifest {
 	const routes: RouteEntry[] = scanRoutes(projectDir, algorithm, distDir).map(
-		({ route, mode, shellHashes }) => ({ route, mode, shellHashes }),
+		({ route, mode, shellHashes, externalIntegrity, uncoveredExternal }) => ({
+			route,
+			mode,
+			shellHashes,
+			// Persist the SRI fields so CDN-terminal delivery (staticCspHeaders) and
+			// the prerender-meta patch can gate `'self'` on real coverage. Omit the
+			// integrity array when empty to keep the manifest lean. When integrity IS
+			// present, persist `uncoveredExternal` even at 0: the policy gate now drops
+			// `'self'` ONLY on an explicit 0 (fail-safe), so an omitted count would be
+			// read back as "coverage unknown" and keep `'self'`, silently losing the
+			// SRI drop on the fully-covered happy path.
+			...(externalIntegrity && externalIntegrity.length > 0
+				? { externalIntegrity, uncoveredExternal }
+				: {}),
+		}),
 	);
 
 	return {

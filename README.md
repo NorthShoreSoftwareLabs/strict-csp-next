@@ -127,6 +127,43 @@ from any script directive you pass, so the strict guarantee cannot be reopened.
 Every option, the CLI, and the lower-level exports are in the
 **[API reference](./docs/api-reference.md)**.
 
+## Dropping `'self'` with SRI
+
+On a prerendered page the external `/_next/static/chunks/*.js` tags cannot be
+covered by a nonce, so the static path falls back to `'self'`. To remove it, pin
+every chunk by Subresource Integrity hash and let the postbuild backfill the tags
+Next leaves un-pinned:
+
+```js
+// next.config.mjs — withStrictCsp enables experimental.sri for you
+import { withStrictCsp } from 'strict-csp-next'
+export default withStrictCsp({ cacheComponents: true })
+```
+
+```json
+// package.json
+{ "scripts": { "build": "next build && strict-csp-next postbuild --backfill" } }
+```
+
+`--backfill` hashes each un-pinned chunk's on-disk bytes and writes the
+`integrity` attribute into the prerendered HTML. Once coverage is complete, the
+policy drops `'self'` and adds `'strict-dynamic'`. The pass is idempotent, and a
+partial-coverage build is never allowed to drop `'self'` — if a chunk slips
+through, the safe `'self' <inline> <integrity>` shape ships instead.
+
+### Using a CDN / `assetPrefix`
+
+When `assetPrefix` points `_next/static` at a CDN on another origin, SRI requires
+a CORS-eligible fetch. With the default `crossOrigin: 'auto'` the backfill detects
+the cross-origin prefix, adds `crossorigin="anonymous"` to the backfilled tags,
+and prints a build-time note. **Your CDN must return
+`Access-Control-Allow-Origin` for the `_next/static` files**, or the browser
+blocks them as SRI failures. Same-origin deployments (no `assetPrefix`, a relative
+one, or the same host — every default Vercel deploy) need no configuration. Force
+the value with `--cross-origin=anonymous|use-credentials`, or disable it with
+`--cross-origin=false` for a same-origin proxy whose `assetPrefix` only looks
+absolute.
+
 ## Deployment at a glance
 
 | Host | How the manifest reaches the proxy |

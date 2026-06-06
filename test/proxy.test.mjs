@@ -79,6 +79,76 @@ test("Reporting-Endpoints rejects header-splitting values", () => {
 	assert.equal(p.reportingEndpoints, null);
 });
 
+test("PPR route ignores externalIntegrity: keeps 'self', nonce-covered (#8a)", () => {
+	// The SRI 'self'-drop is the static/ISR hash path only. A nonce-bearing route
+	// must NOT branch on integrity (the per-request nonce + strict-dynamic cover
+	// every script), so 'self' and the nonce stay regardless of manifest integrity.
+	const m = {
+		version: 1,
+		algorithm: "sha256",
+		routes: [
+			{
+				route: "/app",
+				mode: "ppr",
+				shellHashes: ["'sha256-shell'"],
+				externalIntegrity: ["'sha256-chunk'"],
+				uncoveredExternal: 0,
+			},
+		],
+	};
+	const p = planCsp(m, "/app");
+	const scriptSrc = p.policy
+		.split("; ")
+		.find((d) => d.startsWith("script-src"));
+	assert.match(scriptSrc, /'self'/);
+	assert.match(scriptSrc, /'nonce-[^']+'/);
+	// It does not list the integrity hash (that is the static/ISR path's job).
+	assert.doesNotMatch(scriptSrc, /'sha256-chunk'/);
+});
+
+test("static route with full SRI coverage drops 'self' via planCsp", () => {
+	const m = {
+		version: 1,
+		algorithm: "sha256",
+		routes: [
+			{
+				route: "/",
+				mode: "static",
+				shellHashes: ["'sha256-shell'"],
+				externalIntegrity: ["'sha256-chunk'"],
+				uncoveredExternal: 0,
+			},
+		],
+	};
+	const scriptSrc = planCsp(m, "/")
+		.policy.split("; ")
+		.find((d) => d.startsWith("script-src"));
+	assert.doesNotMatch(scriptSrc, /'self'/);
+	assert.match(scriptSrc, /'sha256-chunk'/);
+	assert.match(scriptSrc, /'strict-dynamic'/);
+});
+
+test("static route with PARTIAL SRI coverage keeps 'self' via planCsp", () => {
+	const m = {
+		version: 1,
+		algorithm: "sha256",
+		routes: [
+			{
+				route: "/",
+				mode: "static",
+				shellHashes: ["'sha256-shell'"],
+				externalIntegrity: ["'sha256-chunk'"],
+				uncoveredExternal: 2,
+			},
+		],
+	};
+	const scriptSrc = planCsp(m, "/")
+		.policy.split("; ")
+		.find((d) => d.startsWith("script-src"));
+	assert.match(scriptSrc, /'self'/);
+	assert.doesNotMatch(scriptSrc, /'strict-dynamic'/);
+});
+
 test("each request gets a unique nonce", () => {
 	const a = planCsp(manifest, "/blog").nonce;
 	const b = planCsp(manifest, "/blog").nonce;

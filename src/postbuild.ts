@@ -11,12 +11,21 @@ import { basename, dirname, join } from "node:path";
 import {
 	closeTagCount,
 	coarseExecutableCount,
+	countExternalScripts,
 	countInlineScripts,
+	countUncoveredExternalScripts,
+	extractExternalIntegrity,
 } from "./hash.js";
+import {
+	backfillIntegrity,
+	type CrossOriginOption,
+	makeAssetResolver,
+} from "./integrity-backfill.js";
 import {
 	generateManifest,
 	MANIFEST_FILENAME,
 	manifestPath,
+	readAssetConfig,
 	resolveDistDir,
 	scanRoutes,
 	writeManifest,
@@ -60,6 +69,24 @@ export interface PostbuildOptions {
 	 * external-bundle integrity.
 	 */
 	exportDir?: string;
+	/**
+	 * Inject `integrity` into external `<script src>` tags Next left un-pinned
+	 * (the client-component chunks that fall through Next's bootstrap SRI), so the
+	 * coverage gate can drop `'self'`. The library hashes each chunk's on-disk
+	 * bytes (`base64(sha256(bytes))`, which matches Next's own integrity exactly)
+	 * and writes the attribute into the prerendered HTML. Idempotent. Scoped to
+	 * static/ISR prerendered output (export HTML and the server prerender HTML);
+	 * dynamic/PPR nonce paths are never touched. Default: `false`.
+	 */
+	backfillIntegrity?: boolean;
+	/**
+	 * crossorigin handling for backfilled tags when assets are cross-origin (a
+	 * CDN `assetPrefix` on another host). `'auto'` (default) injects
+	 * `crossorigin="anonymous"` only for cross-origin assets and prints a CDN-CORS
+	 * note; `'anonymous'` / `'use-credentials'` force the value; `false` never
+	 * adds it. See `WithStrictCspOptions.sri.crossOrigin`.
+	 */
+	crossOrigin?: CrossOriginOption;
 }
 
 export interface PostbuildResult {
@@ -71,18 +98,30 @@ export interface PostbuildResult {
 	prerenderHeadersPatched?: string[];
 	/** Number of exported HTML files a meta CSP was injected into, if exportDir. */
 	exportFilesPatched?: number;
+	/**
+	 * Number of `<script>` tags that gained an `integrity` attribute from the
+	 * backfill (across the server prerender HTML), if `backfillIntegrity`.
+	 */
+	integrityBackfilled?: number;
 	routeCount: number;
 	totalHashes: number;
+	/** Total number of external script integrity hashes across all routes. */
+	totalIntegrityHashes: number;
 	/**
-	 * Routes where the three independent signals disagree, signaling a likely
+	 * Routes where the independent signals disagree, signaling a likely
 	 * missed/misparsed script (drift): the tokenizer count, the independent coarse
-	 * regex count, and the structural open/close-tag balance.
+	 * regex count, and the structural open/close-tag balance. Also covers
+	 * external scripts missing integrity attributes.
 	 */
 	uncovered: Array<{
 		route: string;
 		inlineScripts: number;
 		coarseScripts: number;
 		reason: string;
+		/** Number of external `<script src>` tags found, if checked. */
+		externalScripts?: number;
+		/** Number of integrity hashes extracted, if checked. */
+		integrityHashes?: number;
 	}>;
 }
 
@@ -100,6 +139,22 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 	// The build dir's own name (`.next`, or a custom `distDir`); the standalone
 	// bundle preserves it.
 	const distName = basename(distRoot);
+
+	// Integrity backfill (#3/#4): top up the integrity attributes Next leaves off
+	// the client-component chunks, so the coverage gate can legitimately drop
+	// `'self'`. Runs FIRST, before the manifest, headers, prerender-meta, export
+	// injection, and self-check all read the (now-covered) HTML. Scoped to
+	// static/ISR prerendered HTML; dynamic/PPR (nonce path) is never touched.
+	let integrityBackfilled: number | undefined;
+	if (options.backfillIntegrity) {
+		integrityBackfilled = backfillServerPrerender(
+			projectDir,
+			algorithm,
+			distDir,
+			distRoot,
+			options.crossOrigin ?? "auto",
+		);
+	}
 
 	const manifest = generateManifest(projectDir, algorithm, distDir);
 	const path = writeManifest(projectDir, manifest, distDir);
@@ -143,23 +198,35 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 	}
 
 	// output: 'export' has no server, so inject the policy as a <meta> into each
-	// exported HTML file (hashes only, no nonce).
+	// exported HTML file (hashes only, no nonce). When backfilling, the export
+	// injector also tops up integrity on the shipped `out/` HTML before computing
+	// the meta policy, so the policy lists the hashes that now appear in the tags.
 	let exportFilesPatched: number | undefined;
 	if (options.exportDir) {
+		const assetConfig = readAssetConfig(projectDir, distDir);
 		exportFilesPatched = injectMetaCsp(
 			join(projectDir, options.exportDir),
 			options.algorithm ?? algorithm,
 			options.headerOptions,
+			options.backfillIntegrity
+				? {
+						assetPrefix: assetConfig.assetPrefix,
+						basePath: assetConfig.basePath,
+						crossOrigin: options.crossOrigin ?? "auto",
+					}
+				: undefined,
 		);
 	}
 
 	// Self-check from the exact source files (not a re-derived path), comparing
-	// the primary regex against an independent count to catch drift.
+	// independent counts to catch drift in Next.js script emission.
 	const uncovered: PostbuildResult["uncovered"] = [];
 	let totalHashes = 0;
+	let totalIntegrityHashes = 0;
 
 	for (const route of scanRoutes(projectDir, algorithm, distDir)) {
 		totalHashes += route.shellHashes.length;
+		totalIntegrityHashes += route.externalIntegrity?.length ?? 0;
 		let html: string;
 		try {
 			html = readFileSync(route.file, "utf8");
@@ -168,10 +235,6 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 		}
 		const inlineScripts = countInlineScripts(html);
 		const coarseScripts = coarseExecutableCount(html);
-		// Third signal: every non-self-closing <script> has one </script>. A
-		// shortfall of close tags vs opens means a tag was truncated or malformed,
-		// which the byte-exact hasher would get wrong. Self-closing script tags are
-		// not valid HTML for scripts, so opens should equal closes.
 		const opens = html.match(/<script\b/gi)?.length ?? 0;
 		const closes = closeTagCount(html);
 
@@ -186,12 +249,36 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 				`${opens} <script> open tag(s) but ${closes} </script> close tag(s)`,
 			);
 		}
+
+		// External script integrity check: count external <script src> tags that
+		// LACK an integrity attribute (per-tag, not a dedup-count equality, which
+		// would false-pass on chunks shared across tags). ANY uncovered tag means
+		// dropping 'self' under 'strict-dynamic' would block that chunk, so the
+		// self-check trips on the per-tag shortfall, not only the all-zero case.
+		const externalScripts = countExternalScripts(html);
+		const integrityHashes = extractExternalIntegrity(html).length;
+		const uncoveredExternal = countUncoveredExternalScripts(html);
+		if (externalScripts > 0 && uncoveredExternal > 0) {
+			// Distinguish "SRI never ran" from "SRI ran but coverage is partial" so
+			// the advice is actionable in each case.
+			reasons.push(
+				integrityHashes === 0
+					? `${externalScripts} external script(s) but no integrity attributes ` +
+							`(enable experimental.sri in next.config or set it via withStrictCsp)`
+					: `${uncoveredExternal} of ${externalScripts} external script(s) lack ` +
+							`an integrity attribute (SRI is enabled but coverage is ` +
+							`incomplete; run the integrity backfill to reach 100%)`,
+			);
+		}
+
 		if (reasons.length > 0) {
 			uncovered.push({
 				route: route.route,
 				inlineScripts,
 				coarseScripts,
 				reason: reasons.join("; "),
+				externalScripts: externalScripts > 0 ? externalScripts : undefined,
+				integrityHashes: externalScripts > 0 ? integrityHashes : undefined,
 			});
 		}
 	}
@@ -199,9 +286,9 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 	if (uncovered.length > 0 && options.failOnUncovered) {
 		const detail = uncovered.map((u) => `  ${u.route}: ${u.reason}`).join("\n");
 		throw new Error(
-			`strict-csp-next: inline-script count mismatch (possible uncovered ` +
-				`scripts). This usually means a Next.js change altered inline script ` +
-				`emission.\n${detail}`,
+			`strict-csp-next: script coverage mismatch (possible uncovered ` +
+				`scripts). This usually means a Next.js change altered script ` +
+				`emission or SRI is not enabled.\n${detail}`,
 		);
 	}
 
@@ -211,10 +298,66 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 		standalonePath,
 		prerenderHeadersPatched,
 		exportFilesPatched,
+		integrityBackfilled,
 		routeCount: manifest.routes.length,
 		totalHashes,
+		totalIntegrityHashes,
 		uncovered,
 	};
+}
+
+/**
+ * Backfill integrity into the server prerender HTML (`<distDir>/server/app`) for
+ * static/ISR routes. Resolves each un-pinned `<script src>` to its on-disk chunk
+ * under `<distDir>/static`, hashes the bytes, and writes the attribute back into
+ * the `.html`. Idempotent; PPR/dynamic routes are skipped (they carry a nonce).
+ * Returns the total number of tags backfilled.
+ */
+function backfillServerPrerender(
+	projectDir: string,
+	algorithm: HashAlgorithm,
+	distDir: string | undefined,
+	distRoot: string,
+	crossOrigin: CrossOriginOption,
+): number {
+	const { assetPrefix, basePath } = readAssetConfig(projectDir, distDir);
+	// Server mode: assetRoot is the dist root; the resolver rewrites the `/_next`
+	// URL segment to `<distRoot>` (so `/_next/static/...` -> `<distRoot>/static/...`).
+	const resolve = makeAssetResolver(distRoot, "server");
+	let total = 0;
+	let crossOriginDetected = false;
+	for (const route of scanRoutes(projectDir, algorithm, distDir)) {
+		// Only static/ISR prerendered output. PPR/dynamic use the per-request nonce
+		// and must not be patched.
+		if (route.mode !== "static" && route.mode !== "isr") continue;
+		let html: string;
+		try {
+			html = readFileSync(route.file, "utf8");
+		} catch {
+			continue;
+		}
+		const result = backfillIntegrity(html, {
+			algorithm,
+			assetPrefix,
+			basePath,
+			crossOrigin,
+			resolve,
+		});
+		if (result.injected > 0) {
+			writeFileSync(route.file, result.html);
+			total += result.injected;
+		}
+		if (result.crossOriginDetected) crossOriginDetected = true;
+	}
+	if (crossOriginDetected && total > 0) {
+		console.warn(
+			`strict-csp-next: chunks are served from ${assetPrefix} (cross-origin). ` +
+				`Added crossorigin="anonymous" to ${total} backfilled <script> tag(s). ` +
+				`Your CDN MUST return \`Access-Control-Allow-Origin\` for these files or ` +
+				`the browser will block them as SRI failures.`,
+		);
+	}
+	return total;
 }
 
 /**
