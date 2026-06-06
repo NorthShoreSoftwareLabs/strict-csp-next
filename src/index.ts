@@ -71,13 +71,14 @@ export interface WithStrictCspOptions {
 	 * never diverge across the two entry points (see runPostbuild / the bin).
 	 */
 	algorithm?: HashAlgorithm;
-	/**
-	 * Enforce the policy or only report violations. Default: "enforce".
-	 * `"report-only"` selects the `Content-Security-Policy-Report-Only` header
-	 * name in every static-headers, prerender-meta, and cache-handler path that
-	 * accepts policy options.
-	 */
-	mode?: "enforce" | "report-only";
+	// NOTE: report-only is NOT a `withStrictCsp` option. `withStrictCsp` only
+	// shapes the Next.js config (it enables `experimental.sri`); the
+	// enforce/report-only header name is chosen at delivery time, where the policy
+	// is actually emitted. Set `mode: 'report-only'` on `StrictCspOptions` passed
+	// to `createStrictCsp` (the proxy), `runPostbuild({ headerOptions })`,
+	// `staticCspHeaders`, `injectPrerenderMetaCsp`, or the cache handler. Putting
+	// it on the config wrapper would be a no-op, since that output never reaches
+	// those calls. See the `mode` field on `StrictCspOptions`.
 }
 
 /**

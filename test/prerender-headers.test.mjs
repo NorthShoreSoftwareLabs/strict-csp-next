@@ -13,6 +13,7 @@ import {
 	clearManifestCache,
 	extractInlineHashes,
 	injectPrerenderMetaCsp,
+	runPostbuild,
 } from "../dist/index.js";
 
 let dir;
@@ -101,4 +102,26 @@ test("injectPrerenderMetaCsp honors report-only", () => {
 	const app = join(dir, ".next", "server", "app");
 	const isrMeta = meta(join(app, "isr/index.meta"));
 	assert.ok(isrMeta.headers["content-security-policy-report-only"]);
+});
+
+test("runPostbuild headerOptions.mode=report-only flows end to end (#5)", () => {
+	clearManifestCache();
+	// The working report-only mechanism: StrictCspOptions.mode passed via the
+	// postbuild's headerOptions reaches both the emitted static headers and the
+	// patched prerender meta. (withStrictCsp's config wrapper has no report-only
+	// option — it cannot reach these calls; report-only is a delivery-time choice.)
+	const result = runPostbuild({
+		projectDir: dir,
+		emitHeaders: true,
+		patchPrerenderHeaders: true,
+		headerOptions: { mode: "report-only" },
+	});
+	const headers = JSON.parse(readFileSync(result.headersPath, "utf8"));
+	for (const entry of headers) {
+		assert.equal(entry.headers[0].key, "content-security-policy-report-only");
+	}
+	const app = join(dir, ".next", "server", "app");
+	const staticMeta = meta(join(app, "index.meta"));
+	assert.ok(staticMeta.headers["content-security-policy-report-only"]);
+	assert.equal(staticMeta.headers["content-security-policy"], undefined);
 });
