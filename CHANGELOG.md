@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-05
+
 ### Changed
 
 - **The cache handler is documented as self-hosted only.** `withStrictCspCache`
