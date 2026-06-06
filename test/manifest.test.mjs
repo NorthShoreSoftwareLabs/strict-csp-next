@@ -8,6 +8,7 @@ import {
 	generateManifest,
 	loadManifest,
 	runPostbuild,
+	staticCspHeaders,
 } from "../dist/index.js";
 
 let dir;
@@ -169,6 +170,78 @@ test("self-check does NOT flag an empty-bodied external script", () => {
 			failOnUncovered: true,
 		});
 		assert.equal(uncovered.length, 0);
+	} finally {
+		rmSync(d, { recursive: true, force: true });
+	}
+});
+
+test("self-check flags partial SRI coverage (7 external tags, 5 with integrity)", () => {
+	// Mirror the export example: 7 external <script src> tags, only 5 carry an
+	// integrity attribute. Two un-pinned chunks must be flagged as a per-tag
+	// shortfall (NOT the old all-zero threshold, which would pass).
+	const tags = [
+		'<script src="/_next/a.js" integrity="sha256-a"></script>',
+		'<script src="/_next/b.js" integrity="sha256-b"></script>',
+		'<script src="/_next/c.js" integrity="sha256-c"></script>',
+		'<script src="/_next/d.js" integrity="sha256-d"></script>',
+		'<script src="/_next/e.js" integrity="sha256-e"></script>',
+		'<script src="/_next/f.js" async=""></script>', // un-pinned
+		'<script src="/_next/g.js" async=""></script>', // un-pinned
+	].join("");
+	const d = appDirWith(`<head></head>${inline}${tags}`);
+	try {
+		assert.throws(
+			() => runPostbuild({ projectDir: d, failOnUncovered: true }),
+			/2 of 7 external script\(s\) lack an integrity attribute/,
+		);
+		const { uncovered } = runPostbuild({
+			projectDir: d,
+			failOnUncovered: false,
+		});
+		assert.equal(uncovered.length, 1);
+		assert.equal(uncovered[0].externalScripts, 7);
+		assert.equal(uncovered[0].integrityHashes, 5);
+		assert.match(uncovered[0].reason, /coverage is\s+incomplete/);
+	} finally {
+		rmSync(d, { recursive: true, force: true });
+	}
+});
+
+test("partial coverage: the route's policy keeps 'self' and no strict-dynamic", () => {
+	const tags =
+		'<script src="/_next/a.js" integrity="sha256-a"></script>' +
+		'<script src="/_next/b.js"></script>'; // un-pinned
+	const d = appDirWith(`<head></head>${inline}${tags}`);
+	try {
+		const m = generateManifest(d);
+		const route = m.routes.find((r) => r.route === "/");
+		assert.equal(route.uncoveredExternal, 1);
+		// The emitted static header must keep 'self' and omit strict-dynamic.
+		const entries = staticCspHeaders(m);
+		const value = entries[0].headers[0].value;
+		const scriptSrc = value.split("; ").find((s) => s.startsWith("script-src"));
+		assert.match(scriptSrc, /'self'/);
+		assert.doesNotMatch(scriptSrc, /'strict-dynamic'/);
+		assert.match(scriptSrc, /'sha256-a'/);
+	} finally {
+		rmSync(d, { recursive: true, force: true });
+	}
+});
+
+test("full coverage: the route's policy drops 'self' and forces strict-dynamic", () => {
+	const tags =
+		'<script src="/_next/a.js" integrity="sha256-a"></script>' +
+		'<script src="/_next/b.js" integrity="sha256-b"></script>';
+	const d = appDirWith(`<head></head>${inline}${tags}`);
+	try {
+		const m = generateManifest(d);
+		const route = m.routes.find((r) => r.route === "/");
+		assert.ok(!route.uncoveredExternal); // 0, omitted from the manifest
+		const entries = staticCspHeaders(m);
+		const value = entries[0].headers[0].value;
+		const scriptSrc = value.split("; ").find((s) => s.startsWith("script-src"));
+		assert.doesNotMatch(scriptSrc, /'self'/);
+		assert.match(scriptSrc, /'strict-dynamic'/);
 	} finally {
 		rmSync(d, { recursive: true, force: true });
 	}

@@ -30,12 +30,26 @@ export interface RouteEntry {
 	/**
 	 * CSP source expressions for external `<script src>` tags, extracted from
 	 * the `integrity` attribute added by Next.js when `experimental.sri` is
-	 * enabled. Each entry is ready to use in `script-src`
-	 * (e.g. `'sha256-abc123'`). When non-empty and `mode` is `static` or `isr`,
-	 * the policy omits `'self'` in favor of strict hash pinning + `'strict-dynamic'`.
-	 * Absent or empty for routes without integrity attributes.
+	 * enabled (and topped up by the postbuild integrity backfill). Each entry is
+	 * ready to use in `script-src` (e.g. `'sha256-abc123'`). Deduplicated.
+	 *
+	 * The policy omits `'self'` and forces `'strict-dynamic'` only when this is
+	 * non-empty AND `uncoveredExternal` is 0 — i.e. every external script on the
+	 * route is hash-pinned. With any un-pinned external chunk, the policy keeps
+	 * the safe `'self' <inline> <integrity>` shape (no `'strict-dynamic'`) so the
+	 * un-pinned same-origin chunk still loads. Absent or empty for routes without
+	 * integrity attributes.
 	 */
 	externalIntegrity?: string[];
+	/**
+	 * Count of executable external `<script src>` tags on this route that LACK an
+	 * `integrity` attribute (per-tag, not deduped by file). The coverage gate in
+	 * `buildPolicy` drops `'self'` only when this is 0. Absent means "not
+	 * scanned"; the policy then treats it as fully covered iff `externalIntegrity`
+	 * is non-empty (the historical behavior, preserved for callers that build a
+	 * manifest without the field).
+	 */
+	uncoveredExternal?: number;
 }
 
 export interface CspManifest {

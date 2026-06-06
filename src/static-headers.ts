@@ -47,7 +47,13 @@ export function staticCspHeaders(
 			headers: [
 				{
 					key: headerName,
-					value: buildPolicy(r.shellHashes, null, options, r.externalIntegrity),
+					value: buildPolicy(
+						r.shellHashes,
+						null,
+						options,
+						r.externalIntegrity,
+						r.uncoveredExternal,
+					),
 				},
 			],
 		}));

@@ -99,10 +99,16 @@ function sanitizeScriptDirectives(
  * `script-src` is owned by the library. The exact shape depends on what
  * credentials are available:
  *
- * - **SRI path** (`externalIntegrity` non-empty): inline hashes + integrity
+ * - **SRI path** (`externalIntegrity` non-empty AND every external script
+ *   hash-pinned, i.e. `uncoveredExternal === 0`): inline hashes + integrity
  *   hashes + `'strict-dynamic'`. No `'self'` — every initial script is
  *   hash-pinned, and strict-dynamic propagates trust to runtime chunks.
  *   CSP Evaluator sees green.
+ * - **Partial-coverage fallback** (`externalIntegrity` non-empty but some
+ *   external chunk lacks `integrity`): KEEP `'self'`, list the integrity hashes
+ *   we do have, and do NOT force `'strict-dynamic'`. `'self'` covers the
+ *   un-pinned same-origin chunk; dropping `'self'` here would block it under
+ *   strict-dynamic and ship a broken page. This is the #2 safety gate.
  * - **Static fallback** (no nonce, no integrity hashes): `'self'` + inline
  *   hashes (+ optional `'strict-dynamic'`). External chunks covered by
  *   `'self'`; CSP Evaluator flags it.
@@ -116,12 +122,17 @@ function sanitizeScriptDirectives(
  * @param externalIntegrity - SRI integrity hashes from `<script>` tags in
  *   prerendered HTML (e.g. `['sha256-abc']`). Pass `[]` or `undefined` when
  *   unavailable.
+ * @param uncoveredExternal - Count of external `<script src>` tags on the route
+ *   that lack an `integrity` attribute. When > 0, the SRI `'self'`-drop is
+ *   suppressed. Omit (or `undefined`) to preserve the historical behavior of
+ *   trusting `externalIntegrity` presence alone (treated as fully covered).
  */
 export function buildPolicy(
 	shellHashes: string[],
 	nonce: string | null,
 	options: StrictCspOptions = {},
 	externalIntegrity?: string[],
+	uncoveredExternal?: number,
 ): string {
 	const isDev = process.env.NODE_ENV === "development";
 	const userDirectives = options.directives ?? {};
@@ -136,28 +147,50 @@ export function buildPolicy(
 		? (sanitizedUserDirectives["script-src"] as string[])
 		: [];
 
-	const hasIntegrity = externalIntegrity && externalIntegrity.length > 0;
+	const hasIntegrity = !!externalIntegrity && externalIntegrity.length > 0;
+	// Full coverage means every external script tag is hash-pinned. An explicit
+	// uncovered count gates the drop; when omitted, fall back to the historical
+	// "presence implies coverage" behavior so older manifests still work.
+	const fullyCovered =
+		uncoveredExternal === undefined || uncoveredExternal === 0;
+	const sriPath = hasIntegrity && fullyCovered;
 
-	const scriptSrc = hasIntegrity
-		? [
-				// SRI path: every initial script is hash-pinned. No 'self' needed.
-				...shellHashes,
-				...externalIntegrity,
-				...(nonce ? [`'nonce-${nonce}'`] : []),
-				// Auto-enable strict-dynamic: the hash-pinned initial scripts
-				// need it to load runtime chunks without host-allowlisting.
-				"'strict-dynamic'",
-				...userScriptSrc,
-				...(isDev ? ["'unsafe-eval'"] : []),
-			]
-		: [
-				"'self'",
-				...shellHashes,
-				...(nonce ? [`'nonce-${nonce}'`] : []),
-				...(options.strictDynamic ? ["'strict-dynamic'"] : []),
-				...userScriptSrc,
-				...(isDev ? ["'unsafe-eval'"] : []),
-			];
+	let scriptSrc: string[];
+	if (sriPath) {
+		// SRI path: every initial script is hash-pinned. No 'self' needed, and
+		// strict-dynamic propagates trust to runtime chunks.
+		scriptSrc = [
+			...shellHashes,
+			...(externalIntegrity ?? []),
+			...(nonce ? [`'nonce-${nonce}'`] : []),
+			"'strict-dynamic'",
+			...userScriptSrc,
+			...(isDev ? ["'unsafe-eval'"] : []),
+		];
+	} else if (hasIntegrity) {
+		// Partial coverage (#2 safety gate): some external chunk has no integrity.
+		// Keep 'self' so the un-pinned same-origin chunk still loads, list the
+		// hashes we do have, and DO NOT force 'strict-dynamic' (it would make the
+		// browser ignore 'self' and block that chunk).
+		scriptSrc = [
+			"'self'",
+			...shellHashes,
+			...(externalIntegrity ?? []),
+			...(nonce ? [`'nonce-${nonce}'`] : []),
+			...(options.strictDynamic ? ["'strict-dynamic'"] : []),
+			...userScriptSrc,
+			...(isDev ? ["'unsafe-eval'"] : []),
+		];
+	} else {
+		scriptSrc = [
+			"'self'",
+			...shellHashes,
+			...(nonce ? [`'nonce-${nonce}'`] : []),
+			...(options.strictDynamic ? ["'strict-dynamic'"] : []),
+			...userScriptSrc,
+			...(isDev ? ["'unsafe-eval'"] : []),
+		];
+	}
 
 	// Inline styles: 'unsafe-inline' by default (styled-jsx and CSS-in-JS need it).
 	// Opt into nonced styles with `styleNonce: true` when a nonce is present. In
@@ -209,8 +242,15 @@ export function buildMetaPolicy(
 	shellHashes: string[],
 	options: StrictCspOptions = {},
 	externalIntegrity?: string[],
+	uncoveredExternal?: number,
 ): string {
-	return buildPolicy(shellHashes, null, options, externalIntegrity)
+	return buildPolicy(
+		shellHashes,
+		null,
+		options,
+		externalIntegrity,
+		uncoveredExternal,
+	)
 		.split("; ")
 		.filter((directive) => !META_INVALID.has(directive.split(" ")[0] ?? ""))
 		.join("; ");

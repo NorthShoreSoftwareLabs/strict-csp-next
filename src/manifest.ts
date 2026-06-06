@@ -1,6 +1,10 @@
 import { type Dirent, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { extractExternalIntegrity, extractInlineHashes } from "./hash.js";
+import {
+	countUncoveredExternalScripts,
+	extractExternalIntegrity,
+	extractInlineHashes,
+} from "./hash.js";
 import type {
 	CspManifest,
 	HashAlgorithm,
@@ -147,8 +151,16 @@ export function scanRoutes(
 		const html = readFileSync(file, "utf8");
 		const shellHashes = extractInlineHashes(html, algorithm);
 		const externalIntegrity = extractExternalIntegrity(html);
+		const uncoveredExternal = countUncoveredExternalScripts(html);
 		const mode = classifyRoute(prerenderManifest, route);
-		byRoute.set(route, { route, mode, shellHashes, externalIntegrity, file });
+		byRoute.set(route, {
+			route,
+			mode,
+			shellHashes,
+			externalIntegrity,
+			uncoveredExternal,
+			file,
+		});
 	}
 
 	return [...byRoute.values()].sort((a, b) => a.route.localeCompare(b.route));
@@ -166,7 +178,20 @@ export function generateManifest(
 	distDir?: string,
 ): CspManifest {
 	const routes: RouteEntry[] = scanRoutes(projectDir, algorithm, distDir).map(
-		({ route, mode, shellHashes }) => ({ route, mode, shellHashes }),
+		({ route, mode, shellHashes, externalIntegrity, uncoveredExternal }) => ({
+			route,
+			mode,
+			shellHashes,
+			// Persist the SRI fields so CDN-terminal delivery (staticCspHeaders) and
+			// the prerender-meta patch can gate `'self'` on real coverage. Omit the
+			// integrity array when empty to keep the manifest lean.
+			...(externalIntegrity && externalIntegrity.length > 0
+				? { externalIntegrity }
+				: {}),
+			...(uncoveredExternal && uncoveredExternal > 0
+				? { uncoveredExternal }
+				: {}),
+		}),
 	);
 
 	return {

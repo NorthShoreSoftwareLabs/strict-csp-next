@@ -68,6 +68,7 @@ export function injectPrerenderMetaCsp(
 			null,
 			options,
 			route.externalIntegrity,
+			route.uncoveredExternal,
 		);
 		meta.headers = headers;
 

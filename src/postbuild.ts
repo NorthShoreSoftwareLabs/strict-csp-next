@@ -13,6 +13,7 @@ import {
 	coarseExecutableCount,
 	countExternalScripts,
 	countInlineScripts,
+	countUncoveredExternalScripts,
 	extractExternalIntegrity,
 } from "./hash.js";
 import {
@@ -194,15 +195,24 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 			);
 		}
 
-		// External script integrity check: count external <script src> tags vs.
-		// integrity attributes. A mismatch means some chunks lack SRI coverage,
-		// which would leave them uncovered if 'self' is dropped.
+		// External script integrity check: count external <script src> tags that
+		// LACK an integrity attribute (per-tag, not a dedup-count equality, which
+		// would false-pass on chunks shared across tags). ANY uncovered tag means
+		// dropping 'self' under 'strict-dynamic' would block that chunk, so the
+		// self-check trips on the per-tag shortfall, not only the all-zero case.
 		const externalScripts = countExternalScripts(html);
 		const integrityHashes = extractExternalIntegrity(html).length;
-		if (externalScripts > 0 && integrityHashes === 0) {
+		const uncoveredExternal = countUncoveredExternalScripts(html);
+		if (externalScripts > 0 && uncoveredExternal > 0) {
+			// Distinguish "SRI never ran" from "SRI ran but coverage is partial" so
+			// the advice is actionable in each case.
 			reasons.push(
-				`${externalScripts} external script(s) but no integrity attributes ` +
-					`(enable experimental.sri in next.config or set it via withStrictCsp)`,
+				integrityHashes === 0
+					? `${externalScripts} external script(s) but no integrity attributes ` +
+							`(enable experimental.sri in next.config or set it via withStrictCsp)`
+					: `${uncoveredExternal} of ${externalScripts} external script(s) lack ` +
+							`an integrity attribute (SRI is enabled but coverage is ` +
+							`incomplete; run the integrity backfill to reach 100%)`,
 			);
 		}
 

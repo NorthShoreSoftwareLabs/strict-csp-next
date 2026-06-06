@@ -3,6 +3,7 @@ import {
 	closeTagCount,
 	coarseExecutableCount,
 	countInlineScripts,
+	countUncoveredExternalScripts,
 	extractExternalIntegrity,
 	extractInlineHashes,
 } from "./hash.js";
@@ -91,8 +92,15 @@ export function cspHeaderForHtml(
 	}
 	const hashes = extractInlineHashes(html, algorithm);
 	const externalIntegrity = extractExternalIntegrity(html);
+	const uncoveredExternal = countUncoveredExternalScripts(html);
 	return {
-		policy: buildPolicy(hashes, null, options, externalIntegrity),
+		policy: buildPolicy(
+			hashes,
+			null,
+			options,
+			externalIntegrity,
+			uncoveredExternal,
+		),
 		headerName,
 		driftReason: null,
 	};
