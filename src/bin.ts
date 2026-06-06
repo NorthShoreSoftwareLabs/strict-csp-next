@@ -29,6 +29,15 @@ function main(argv: string[]): void {
 		: undefined;
 	const distArg = args.find((a) => a.startsWith("--dist-dir="));
 	const distDir = distArg ? distArg.slice("--dist-dir=".length) : undefined;
+	const backfillIntegrity = args.includes("--backfill");
+	const coArg = args.find((a) => a.startsWith("--cross-origin="));
+	const coRaw = coArg ? coArg.slice("--cross-origin=".length) : undefined;
+	const crossOrigin =
+		coRaw === "false"
+			? false
+			: coRaw === "anonymous" || coRaw === "use-credentials" || coRaw === "auto"
+				? coRaw
+				: undefined;
 	const dirArg = args.find((a) => !a.startsWith("-") && a !== "postbuild");
 
 	try {
@@ -38,6 +47,8 @@ function main(argv: string[]): void {
 			failOnUncovered,
 			emitHeaders,
 			exportDir,
+			backfillIntegrity,
+			crossOrigin,
 		});
 		console.log(
 			`strict-csp-next: wrote ${result.manifestPath}\n` +
@@ -54,6 +65,11 @@ function main(argv: string[]): void {
 		if (result.exportFilesPatched !== undefined) {
 			console.log(
 				`  injected meta CSP into ${result.exportFilesPatched} exported HTML file(s)`,
+			);
+		}
+		if (result.integrityBackfilled !== undefined) {
+			console.log(
+				`  backfilled integrity into ${result.integrityBackfilled} server prerender <script> tag(s)`,
 			);
 		}
 		if (result.uncovered.length > 0) {
@@ -77,6 +93,8 @@ function printHelp(): void {
 			`Options:\n` +
 			`  --emit-headers     write .next/strict-csp-headers.json for static routes\n` +
 			`  --export[=<dir>]   inject a <meta> CSP into exported HTML (output: 'export', default dir "out")\n` +
+			`  --backfill         inject integrity into external <script src> tags Next left un-pinned\n` +
+			`  --cross-origin=<v> auto|anonymous|use-credentials|false for backfilled tags (default auto)\n` +
 			`  --dist-dir=<dir>   Next build dir if you set a custom distDir (default ".next")\n` +
 			`  --no-strict        do not fail the build on uncovered inline scripts\n`,
 	);

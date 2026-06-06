@@ -6,8 +6,20 @@ import {
 	extractExternalIntegrity,
 	extractInlineHashes,
 } from "./hash.js";
+import {
+	backfillIntegrity,
+	type CrossOriginOption,
+	makeAssetResolver,
+} from "./integrity-backfill.js";
 import { buildMetaPolicy } from "./policy.js";
 import type { HashAlgorithm, StrictCspOptions } from "./types.js";
+
+/** Integrity-backfill configuration passed down to the export meta injector. */
+export interface ExportBackfillConfig {
+	assetPrefix?: string;
+	basePath?: string;
+	crossOrigin?: CrossOriginOption;
+}
 
 let warnedFrameAncestors = false;
 
@@ -105,12 +117,32 @@ export function injectMetaCsp(
 	exportDir: string,
 	algorithm: HashAlgorithm = "sha256",
 	options: StrictCspOptions = {},
+	backfill?: ExportBackfillConfig,
 ): number {
 	let patched = 0;
 	const skipped: string[] = [];
+	const resolve = makeAssetResolver(exportDir, "export");
+	let totalInjected = 0;
+	let crossOriginDetected = false;
 	for (const file of walkHtml(exportDir)) {
 		const original = readFileSync(file, "utf8");
-		const html = original.replace(META_TAG, "");
+		let html = original.replace(META_TAG, "");
+		// Backfill integrity into external <script src> tags Next left un-pinned,
+		// BEFORE computing inline hashes and the meta policy, so the policy lists
+		// the hashes that now appear in the tags. Idempotent: a tag already carrying
+		// integrity is skipped, so re-running the postbuild does not double-inject.
+		if (backfill) {
+			const result = backfillIntegrity(html, {
+				algorithm,
+				assetPrefix: backfill.assetPrefix,
+				basePath: backfill.basePath,
+				crossOrigin: backfill.crossOrigin,
+				resolve,
+			});
+			html = result.html;
+			totalInjected += result.injected;
+			if (result.crossOriginDetected) crossOriginDetected = true;
+		}
 		const hashes = extractInlineHashes(html, algorithm);
 		const externalIntegrity = extractExternalIntegrity(html);
 		const uncoveredExternal = countUncoveredExternalScripts(html);
@@ -141,6 +173,17 @@ export function injectMetaCsp(
 			`strict-csp-next: ${skipped.length} exported file(s) have inline scripts ` +
 				`but no <head> to anchor a <meta> CSP, so they are NOT protected:\n` +
 				skipped.map((f) => `  ${f}`).join("\n"),
+		);
+	}
+	// Fail loud, never silent: when assets are cross-origin, the backfilled tags
+	// carry crossorigin="anonymous" but the CDN must opt in with CORS headers.
+	if (crossOriginDetected && totalInjected > 0) {
+		console.warn(
+			`strict-csp-next: chunks are served from ${backfill?.assetPrefix} ` +
+				`(cross-origin). Added crossorigin="anonymous" to ${totalInjected} ` +
+				`backfilled <script> tag(s). Your CDN MUST return ` +
+				`\`Access-Control-Allow-Origin\` for these files or the browser will ` +
+				`block them as SRI failures.`,
 		);
 	}
 	// frame-ancestors can't be delivered via <meta>; remind the operator once.

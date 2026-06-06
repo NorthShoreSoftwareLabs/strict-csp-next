@@ -20,6 +20,16 @@ export {
 	hashInlineScript,
 	scanScripts,
 } from "./hash.js";
+export type {
+	BackfillOptions,
+	BackfillResult,
+	CrossOriginOption,
+} from "./integrity-backfill.js";
+export {
+	backfillIntegrity,
+	isCrossOrigin,
+	makeAssetResolver,
+} from "./integrity-backfill.js";
 export { lookupRoute } from "./lookup.js";
 export {
 	clearManifestCache,
@@ -53,9 +63,20 @@ export type {
 } from "./types.js";
 
 export interface WithStrictCspOptions {
-	/** Hash algorithm for inline scripts and SRI. Default: "sha256". */
+	/**
+	 * Hash algorithm for inline scripts and SRI. Default: "sha256". Drives the
+	 * `experimental.sri.algorithm` Next uses to stamp integrity. The postbuild
+	 * integrity backfill and inline-hash extraction default to the same value;
+	 * pass the matching `algorithm` to `runPostbuild` so SRI and inline hashes
+	 * never diverge across the two entry points (see runPostbuild / the bin).
+	 */
 	algorithm?: HashAlgorithm;
-	/** Enforce the policy or only report violations. Default: "enforce". */
+	/**
+	 * Enforce the policy or only report violations. Default: "enforce".
+	 * `"report-only"` selects the `Content-Security-Policy-Report-Only` header
+	 * name in every static-headers, prerender-meta, and cache-handler path that
+	 * accepts policy options.
+	 */
 	mode?: "enforce" | "report-only";
 }
 

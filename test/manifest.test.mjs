@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -243,6 +244,91 @@ test("full coverage: the route's policy drops 'self' and forces strict-dynamic",
 		assert.doesNotMatch(scriptSrc, /'self'/);
 		assert.match(scriptSrc, /'strict-dynamic'/);
 	} finally {
+		rmSync(d, { recursive: true, force: true });
+	}
+});
+
+test("runPostbuild backfill reaches 100% coverage and is idempotent", () => {
+	const d = mkdtempSync(join(tmpdir(), "scn-bfp-"));
+	try {
+		const app = join(d, ".next", "server", "app");
+		const chunks = join(d, ".next", "static", "chunks");
+		mkdirSync(app, { recursive: true });
+		mkdirSync(chunks, { recursive: true });
+		writeFileSync(join(chunks, "covered.js"), "covered()");
+		writeFileSync(join(chunks, "uncovered.js"), "uncovered()");
+		// Mirror Turbopack partial output: one tag pinned, one not.
+		const covered = createHash("sha256").update("covered()").digest("base64");
+		writeFileSync(
+			join(app, "index.html"),
+			`<head></head>${inline}` +
+				`<script src="/_next/static/chunks/covered.js" integrity="sha256-${covered}"></script>` +
+				`<script src="/_next/static/chunks/uncovered.js" async=""></script>`,
+		);
+
+		// Without backfill: partial coverage, self-check fails.
+		assert.throws(
+			() => runPostbuild({ projectDir: d, failOnUncovered: true }),
+			/coverage is\s+incomplete|lack an integrity/,
+		);
+
+		// With backfill: coverage reaches 100%, gate drops 'self'.
+		const r = runPostbuild({
+			projectDir: d,
+			backfillIntegrity: true,
+			failOnUncovered: true,
+		});
+		assert.equal(r.integrityBackfilled, 1);
+		assert.equal(r.totalIntegrityHashes, 2);
+		assert.equal(r.uncovered.length, 0);
+
+		const m = generateManifest(d);
+		const route = m.routes.find((x) => x.route === "/");
+		assert.ok(!route.uncoveredExternal);
+		const value = staticCspHeaders(m)[0].headers[0].value;
+		const scriptSrc = value.split("; ").find((s) => s.startsWith("script-src"));
+		assert.doesNotMatch(scriptSrc, /'self'/);
+		assert.match(scriptSrc, /'strict-dynamic'/);
+
+		// Re-run is a no-op (idempotent).
+		const r2 = runPostbuild({
+			projectDir: d,
+			backfillIntegrity: true,
+			failOnUncovered: true,
+		});
+		assert.equal(r2.integrityBackfilled, 0);
+		assert.equal(r2.totalIntegrityHashes, 2);
+	} finally {
+		clearManifestCache();
+		rmSync(d, { recursive: true, force: true });
+	}
+});
+
+test("runPostbuild backfill does NOT touch ppr/dynamic (nonce) routes", () => {
+	const d = mkdtempSync(join(tmpdir(), "scn-bfppr-"));
+	try {
+		const app = join(d, ".next", "server", "app");
+		const chunks = join(d, ".next", "static", "chunks");
+		mkdirSync(join(app, "dash"), { recursive: true });
+		mkdirSync(chunks, { recursive: true });
+		writeFileSync(join(chunks, "p.js"), "p()");
+		writeFileSync(
+			join(app, "dash", "index.html"),
+			`<head></head>${inline}<script src="/_next/static/chunks/p.js" async=""></script>`,
+		);
+		writeFileSync(
+			join(d, ".next", "prerender-manifest.json"),
+			JSON.stringify({ routes: { "/dash": { experimentalPPR: true } } }),
+		);
+		const r = runPostbuild({
+			projectDir: d,
+			backfillIntegrity: true,
+			failOnUncovered: false,
+		});
+		// The PPR route's chunk is left un-pinned (it relies on the per-request nonce).
+		assert.equal(r.integrityBackfilled, 0);
+	} finally {
+		clearManifestCache();
 		rmSync(d, { recursive: true, force: true });
 	}
 });

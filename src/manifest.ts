@@ -37,6 +37,41 @@ interface PrerenderManifest {
 	routes?: Record<string, PrerenderEntry>;
 }
 
+/**
+ * Read `basePath` / `assetPrefix` from the build's own manifests. Both are
+ * `''` on a default deployment. `routes-manifest.json` carries `basePath`;
+ * `required-server-files.json` carries the resolved config (including
+ * `assetPrefix`) on server builds. For `output: 'export'` there is no
+ * required-server-files, so `assetPrefix` falls back to ''.
+ */
+export function readAssetConfig(
+	projectDir: string,
+	distDir?: string,
+): { basePath: string; assetPrefix: string } {
+	const root = resolveDistDir(projectDir, distDir);
+	let basePath = "";
+	let assetPrefix = "";
+	try {
+		const routes = JSON.parse(
+			readFileSync(join(root, "routes-manifest.json"), "utf8"),
+		);
+		if (typeof routes.basePath === "string") basePath = routes.basePath;
+	} catch {
+		// no routes-manifest (export builds may still have one); leave defaults
+	}
+	try {
+		const rsf = JSON.parse(
+			readFileSync(join(root, "required-server-files.json"), "utf8"),
+		);
+		const cfg = rsf?.config ?? {};
+		if (typeof cfg.assetPrefix === "string") assetPrefix = cfg.assetPrefix;
+		if (!basePath && typeof cfg.basePath === "string") basePath = cfg.basePath;
+	} catch {
+		// export builds have no required-server-files; assetPrefix stays ''
+	}
+	return { basePath, assetPrefix };
+}
+
 function readPrerenderManifest(
 	projectDir: string,
 	distDir?: string,
