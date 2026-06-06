@@ -100,8 +100,30 @@ export function withStrictCsp(
 	options: WithStrictCspOptions = {},
 ): NextConfig {
 	const algorithm = options.algorithm ?? "sha256";
-	// Enable SRI unless the user has explicitly configured it.
+	// Enable SRI unless the user has explicitly configured it. Precedence: an
+	// explicit `experimental.sri` the user set always wins — Next stamps integrity
+	// using THAT algorithm, and the postbuild copies integrity literally, so SRI is
+	// unaffected. But the inline-hash algorithm is configured independently (on
+	// `runPostbuild` / the bin), so the two can silently diverge. Warn when the
+	// caller passes an `algorithm` that does not match an explicit
+	// `experimental.sri.algorithm`, so the policy's inline-hash and integrity
+	// algorithms stay aligned (#8c).
 	const existingSri = nextConfig.experimental?.sri;
+	if (
+		existingSri !== undefined &&
+		options.algorithm &&
+		typeof existingSri === "object" &&
+		existingSri.algorithm &&
+		existingSri.algorithm !== options.algorithm
+	) {
+		console.warn(
+			`strict-csp-next: withStrictCsp({ algorithm: '${options.algorithm}' }) is ` +
+				`ignored because experimental.sri.algorithm is already set to ` +
+				`'${existingSri.algorithm}'. SRI integrity uses '${existingSri.algorithm}'; ` +
+				`make sure runPostbuild uses the same algorithm so inline-script hashes ` +
+				`and integrity hashes do not diverge.`,
+		);
+	}
 	const sri = existingSri !== undefined ? existingSri : { algorithm };
 
 	return {
