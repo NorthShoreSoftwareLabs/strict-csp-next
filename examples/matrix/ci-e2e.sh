@@ -10,15 +10,18 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 
 # Pack the library so the example consumes the real published shape, and install
 # the freshly packed tarball so we test the current build, not a cached one. The
-# example pins `file:../../strict-csp-next-<ver>.tgz`, so the tarball must land in
+# example pins `file:../../strict-csp-next.tgz`, so the tarball must land in
 # $ROOT for the first `pnpm install` to resolve it. Discard pack's stdout and find
 # the file by glob, so any build output folded into stdout can't corrupt the
 # filename.
 cd "$ROOT"
 pnpm build >/dev/null 2>&1
-rm -f strict-csp-next-*.tgz
+rm -f strict-csp-next-*.tgz strict-csp-next.tgz
 pnpm pack >/dev/null 2>&1
-TARBALL="$(ls strict-csp-next-*.tgz)"
+# Rename to a version-agnostic filename so the examples can pin a stable path
+# (file:../../strict-csp-next.tgz) that does not rot on every version bump.
+mv "$(ls strict-csp-next-*.tgz)" strict-csp-next.tgz
+TARBALL="strict-csp-next.tgz"
 
 cd "$HERE"
 pnpm install

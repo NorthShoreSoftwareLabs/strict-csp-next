@@ -12,6 +12,6 @@
     "next": "^16.2.7",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "strict-csp-next": "file:../../strict-csp-next-0.1.0.tgz"
+    "strict-csp-next": "file:../../strict-csp-next.tgz"
   }
 }
