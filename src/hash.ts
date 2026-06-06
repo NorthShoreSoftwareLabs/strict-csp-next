@@ -199,7 +199,7 @@ export function scanScripts(html: string): ScriptToken[] {
  * browser never executes. External `<script src>` tags pass this (they execute),
  * so it is the shared executable-type filter for both inline and external scans.
  */
-function isExecutableType(attrs: Map<string, string>): boolean {
+export function isExecutableType(attrs: Map<string, string>): boolean {
 	const type = attrs.get("type")?.trim().toLowerCase();
 	return !(type && NON_EXECUTABLE_TYPES.has(type));
 }

@@ -237,7 +237,7 @@ test("full coverage: the route's policy drops 'self' and forces strict-dynamic",
 	try {
 		const m = generateManifest(d);
 		const route = m.routes.find((r) => r.route === "/");
-		assert.ok(!route.uncoveredExternal); // 0, omitted from the manifest
+		assert.equal(route.uncoveredExternal, 0); // present as 0: integrity covers all
 		const entries = staticCspHeaders(m);
 		const value = entries[0].headers[0].value;
 		const scriptSrc = value.split("; ").find((s) => s.startsWith("script-src"));
@@ -284,7 +284,7 @@ test("runPostbuild backfill reaches 100% coverage and is idempotent", () => {
 
 		const m = generateManifest(d);
 		const route = m.routes.find((x) => x.route === "/");
-		assert.ok(!route.uncoveredExternal);
+		assert.equal(route.uncoveredExternal, 0);
 		const value = staticCspHeaders(m)[0].headers[0].value;
 		const scriptSrc = value.split("; ").find((s) => s.startsWith("script-src"));
 		assert.doesNotMatch(scriptSrc, /'self'/);

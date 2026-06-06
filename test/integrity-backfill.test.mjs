@@ -70,6 +70,24 @@ test("backfill skips third-party absolute URLs (not hashable from disk)", () => 
 	assert.equal(result.injected, 0);
 });
 
+test("resolver contains path traversal: a src escaping the asset root is skipped", () => {
+	// A `..`-laden src must not resolve to a file outside assetRoot. The containment
+	// guard returns null, so the tag is skipped: no read, no integrity injection.
+	const exportResolve = makeAssetResolver(dir, "export");
+	const serverResolve = makeAssetResolver(dir, "server");
+	const traversal = "/_next/../../etc/passwd";
+	assert.equal(exportResolve(traversal), null);
+	assert.equal(serverResolve(traversal), null);
+
+	const html = `<script src="${traversal}"></script>`;
+	const exportResult = backfillIntegrity(html, { resolve: exportResolve });
+	assert.equal(exportResult.injected, 0);
+	assert.equal(exportResult.html, html);
+	const serverResult = backfillIntegrity(html, { resolve: serverResolve });
+	assert.equal(serverResult.injected, 0);
+	assert.equal(serverResult.html, html);
+});
+
 test("crossOrigin auto: same-origin gets integrity only, no crossorigin", () => {
 	const resolve = makeAssetResolver(dir, "export");
 	const html = '<script src="/_next/static/chunks/a.js"></script>';

@@ -50,6 +50,7 @@ test("static headers omit self when externalIntegrity is present", () => {
 				mode: "static",
 				shellHashes: ["'sha256-inline'"],
 				externalIntegrity: ["'sha256-chunk'"],
+				uncoveredExternal: 0,
 			},
 		],
 	};

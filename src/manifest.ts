@@ -219,12 +219,13 @@ export function generateManifest(
 			shellHashes,
 			// Persist the SRI fields so CDN-terminal delivery (staticCspHeaders) and
 			// the prerender-meta patch can gate `'self'` on real coverage. Omit the
-			// integrity array when empty to keep the manifest lean.
+			// integrity array when empty to keep the manifest lean. When integrity IS
+			// present, persist `uncoveredExternal` even at 0: the policy gate now drops
+			// `'self'` ONLY on an explicit 0 (fail-safe), so an omitted count would be
+			// read back as "coverage unknown" and keep `'self'`, silently losing the
+			// SRI drop on the fully-covered happy path.
 			...(externalIntegrity && externalIntegrity.length > 0
-				? { externalIntegrity }
-				: {}),
-			...(uncoveredExternal && uncoveredExternal > 0
-				? { uncoveredExternal }
+				? { externalIntegrity, uncoveredExternal }
 				: {}),
 		}),
 	);

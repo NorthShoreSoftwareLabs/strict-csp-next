@@ -141,10 +141,13 @@ test("styleNonce uses the nonce for style-src when a nonce is present", () => {
 });
 
 test("SRI path: externalIntegrity omits self, includes hashes and strict-dynamic", () => {
-	const csp = buildPolicy(["'sha256-abc'"], null, {}, [
-		"'sha256-xyz'",
-		"'sha256-def'",
-	]);
+	const csp = buildPolicy(
+		["'sha256-abc'"],
+		null,
+		{},
+		["'sha256-xyz'", "'sha256-def'"],
+		0, // every external tag is pinned (explicit full coverage)
+	);
 	// No 'self' — scripts are hash-pinned.
 	assert.doesNotMatch(csp, /script-src[^;]*'self'/);
 	// Inline hashes present.
@@ -168,7 +171,13 @@ test("SRI path: undefined externalIntegrity falls back to self", () => {
 });
 
 test("SRI path with nonce keeps nonce alongside integrity hashes", () => {
-	const csp = buildPolicy(["'sha256-shell'"], "NONCE", {}, ["'sha256-chunk'"]);
+	const csp = buildPolicy(
+		["'sha256-shell'"],
+		"NONCE",
+		{},
+		["'sha256-chunk'"],
+		0, // explicit full coverage
+	);
 	assert.match(csp, /'nonce-NONCE'/);
 	assert.match(csp, /'sha256-chunk'/);
 	assert.match(csp, /'strict-dynamic'/);
@@ -209,11 +218,15 @@ test("coverage gate: zero uncovered drops 'self' and forces strict-dynamic", () 
 	assert.match(scriptSrc, /'sha256-a'/);
 });
 
-test("coverage gate: omitted uncovered preserves historical presence-based drop", () => {
-	// Older manifests carry no uncovered count; presence of integrity implies full
-	// coverage (the prior behavior), so 'self' is dropped.
+test("coverage gate (fail-safe): externalIntegrity present + uncovered undefined keeps 'self'", () => {
+	// Integrity hashes present but the uncovered count is unknown (undefined). We
+	// cannot prove full coverage, so the fail-safe keeps 'self' and does NOT force
+	// 'strict-dynamic' — never drop 'self' on unproven coverage.
 	const csp = buildPolicy(["'sha256-inline'"], null, {}, ["'sha256-a'"]);
 	const scriptSrc = csp.split("; ").find((d) => d.startsWith("script-src"));
-	assert.doesNotMatch(scriptSrc, /'self'/);
-	assert.match(scriptSrc, /'strict-dynamic'/);
+	assert.match(scriptSrc, /'self'/);
+	assert.doesNotMatch(scriptSrc, /'strict-dynamic'/);
+	// The hashes we do have are still listed.
+	assert.match(scriptSrc, /'sha256-a'/);
+	assert.match(scriptSrc, /'sha256-inline'/);
 });

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
-import { scanScripts } from "./hash.js";
+import { isAbsolute, join, resolve, sep } from "node:path";
+import { isExecutableType, scanScripts } from "./hash.js";
 import type { HashAlgorithm } from "./types.js";
 
 /**
@@ -124,16 +124,8 @@ export function backfillIntegrity(
 		if (!tok.src) continue; // inline
 		if (tok.integrity && tok.integrity.trim() !== "") continue; // already covered
 		// Skip inert types and tags whose src is not a resolvable local asset.
-		const type = tok.attrs.get("type")?.trim().toLowerCase();
-		if (
-			type &&
-			(type === "application/json" ||
-				type === "application/ld+json" ||
-				type === "text/template" ||
-				type === "text/html")
-		) {
-			continue;
-		}
+		// Reuse the centralized executable-type check (one source of truth in hash.ts).
+		if (!isExecutableType(tok.attrs)) continue;
 		// A backfill cannot pin a script Next will fetch from another origin without
 		// also hashing those bytes locally; resolve() returns null for those.
 		const assetPath = stripPrefix(
@@ -190,6 +182,18 @@ export function backfillIntegrity(
 }
 
 /**
+ * Path-traversal guard: return `abs` only when it lands inside `assetRoot`,
+ * else null. A `src` like `/_next/../../etc/passwd` resolves outside the root and
+ * is rejected, so the resolver never reads (or pins) a file outside the asset dir.
+ */
+function contain(abs: string, assetRoot: string): string | null {
+	const resolved = resolve(abs);
+	const root = resolve(assetRoot);
+	if (resolved !== root && !resolved.startsWith(root + sep)) return null;
+	return resolved;
+}
+
+/**
  * Build a resolver that maps a `/_next/...`-style asset path to an on-disk file
  * under `assetRoot`. For `output: 'export'`, `assetRoot` is the export dir (`out`)
  * and `/_next/static/...` lives directly under it. For server builds, `assetRoot`
@@ -215,11 +219,12 @@ export function makeAssetResolver(
 		if (mode === "export") {
 			// /_next/static/chunks/x.js -> <out>/_next/static/chunks/x.js
 			const p = join(assetRoot, rel);
-			return isAbsolute(p) ? p : null;
+			if (!isAbsolute(p)) return null;
+			return contain(p, assetRoot);
 		}
 		// server: /_next/static/... -> <distRoot>/static/...
 		const m = rel.match(/^\/_next\/(.*)$/);
 		if (!m || m[1] === undefined) return null;
-		return join(assetRoot, m[1]);
+		return contain(join(assetRoot, m[1]), assetRoot);
 	};
 }

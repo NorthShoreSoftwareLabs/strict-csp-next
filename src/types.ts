@@ -44,10 +44,11 @@ export interface RouteEntry {
 	/**
 	 * Count of executable external `<script src>` tags on this route that LACK an
 	 * `integrity` attribute (per-tag, not deduped by file). The coverage gate in
-	 * `buildPolicy` drops `'self'` only when this is 0. Absent means "not
-	 * scanned"; the policy then treats it as fully covered iff `externalIntegrity`
-	 * is non-empty (the historical behavior, preserved for callers that build a
-	 * manifest without the field).
+	 * `buildPolicy` drops `'self'` ONLY when this is an explicit `0` (fail-safe).
+	 * Absent means "coverage unknown" and is treated as NOT fully covered, so the
+	 * policy keeps `'self'`. The manifest therefore persists this field (even at 0)
+	 * whenever `externalIntegrity` is present, so the fully-covered route still
+	 * drops `'self'` after the manifest round-trip.
 	 */
 	uncoveredExternal?: number;
 }

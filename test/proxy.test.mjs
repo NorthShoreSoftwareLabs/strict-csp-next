@@ -116,6 +116,7 @@ test("static route with full SRI coverage drops 'self' via planCsp", () => {
 				mode: "static",
 				shellHashes: ["'sha256-shell'"],
 				externalIntegrity: ["'sha256-chunk'"],
+				uncoveredExternal: 0,
 			},
 		],
 	};

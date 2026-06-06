@@ -123,9 +123,10 @@ function sanitizeScriptDirectives(
  *   prerendered HTML (e.g. `['sha256-abc']`). Pass `[]` or `undefined` when
  *   unavailable.
  * @param uncoveredExternal - Count of external `<script src>` tags on the route
- *   that lack an `integrity` attribute. When > 0, the SRI `'self'`-drop is
- *   suppressed. Omit (or `undefined`) to preserve the historical behavior of
- *   trusting `externalIntegrity` presence alone (treated as fully covered).
+ *   that lack an `integrity` attribute. The SRI `'self'`-drop fires ONLY when this
+ *   is explicitly `0` (provably full coverage). Any positive count, or `undefined`
+ *   (coverage unknown), keeps `'self'` and suppresses forced `'strict-dynamic'` —
+ *   the fail-safe default.
  */
 export function buildPolicy(
 	shellHashes: string[],
@@ -148,11 +149,13 @@ export function buildPolicy(
 		: [];
 
 	const hasIntegrity = !!externalIntegrity && externalIntegrity.length > 0;
-	// Full coverage means every external script tag is hash-pinned. An explicit
-	// uncovered count gates the drop; when omitted, fall back to the historical
-	// "presence implies coverage" behavior so older manifests still work.
-	const fullyCovered =
-		uncoveredExternal === undefined || uncoveredExternal === 0;
+	// Full coverage means every external script tag is hash-pinned. Fail-safe: the
+	// 'self'-drop fires ONLY on an explicit `uncoveredExternal === 0`. If integrity
+	// is present but the uncovered count is unknown (`undefined`), we CANNOT prove
+	// full coverage, so we keep 'self' and do not force 'strict-dynamic' — the same
+	// safe partial-coverage path. Trusting presence alone would re-open the bug
+	// where a manifest with non-empty hashes but partial coverage drops 'self'.
+	const fullyCovered = uncoveredExternal === 0;
 	const sriPath = hasIntegrity && fullyCovered;
 
 	let scriptSrc: string[];
