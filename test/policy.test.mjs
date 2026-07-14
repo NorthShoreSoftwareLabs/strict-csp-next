@@ -88,6 +88,52 @@ test("unsafe sources are stripped from script-src-elem/-attr and default-src", (
 	assert.doesNotMatch(dir("default-src"), /unsafe-inline/);
 });
 
+test("script-src-elem/-attr mirror the computed script-src credentials", () => {
+	// A caller who adds a more-specific script directive must not shadow the
+	// library-owned script-src: CSP3 uses script-src-elem for <script> elements and
+	// does not fall back, so the hashes + nonce have to be mirrored into it.
+	const csp = buildPolicy(["'sha256-shell'"], "NONCE123", {
+		directives: {
+			"script-src-elem": ["https://cdn.example.com"],
+			"script-src-attr": ["'none'"],
+		},
+	});
+	const dir = (name) => csp.split("; ").find((d) => d.startsWith(name));
+	const elem = dir("script-src-elem");
+	assert.match(elem, /'self'/);
+	assert.match(elem, /'sha256-shell'/);
+	assert.match(elem, /'nonce-NONCE123'/);
+	assert.match(elem, /https:\/\/cdn\.example\.com/); // caller's extra source kept
+	const attr = dir("script-src-attr");
+	assert.match(attr, /'sha256-shell'/);
+	assert.match(attr, /'nonce-NONCE123'/);
+});
+
+test("Next's nonce reader finds the nonce even with a caller script-src-elem", () => {
+	// Reproduces Next 15.5 / 16 getScriptNonceFromHeader: it takes the FIRST
+	// `script-src*` directive (dir.startsWith('script-src')), which is
+	// `script-src-elem` here because it sorts before `script-src`. Mirroring the
+	// credentials means Next reads a valid nonce instead of undefined.
+	const csp = buildPolicy(["'sha256-shell'"], "NONCEabc_-123", {
+		directives: { "script-src-elem": ["'self'"] },
+	});
+	const CSP_NONCE_SOURCE_REGEX = /^'nonce-([A-Za-z0-9+/_-]+={0,2})'$/;
+	const directives = csp.split(";").map((d) => d.trim());
+	const directive =
+		directives.find((d) => d.startsWith("script-src")) ||
+		directives.find((d) => d.startsWith("default-src"));
+	assert.equal(directive.startsWith("script-src-elem"), true); // the shadowing one
+	let nonce;
+	for (const source of directive.split(/\s+/).slice(1)) {
+		const m = source.trim().match(CSP_NONCE_SOURCE_REGEX);
+		if (m) {
+			nonce = m[1];
+			break;
+		}
+	}
+	assert.equal(nonce, "NONCEabc_-123");
+});
+
 test("unsafe-hashes is also stripped from script-src additions", () => {
 	const csp = buildPolicy([], "n", {
 		directives: {
