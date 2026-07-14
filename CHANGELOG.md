@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Next.js 15 cache-handler runtime e2e (`examples/next15-cache`).** A classic
+  Next 15 App Router app that drives an ISR route through every cache state
+  against a real `next start` and records which states carry the CSP header from
+  `withStrictCspCache`. It prints a `STATE -> header` table and asserts the
+  covered states (build prerender, HIT, STALE, on-demand `revalidatePath`), while
+  recording the plain first-fill MISS behavior rather than failing on it: on
+  Next 15 the response-cache resolves the HTTP response before awaiting
+  `cacheHandler.set()` on an ordinary MISS, so a plain first-fill MISS may ship
+  without the header (the documented Next 15 caveat). Wired into CI as the
+  `e2e-next15-cache` job (`bash examples/next15-cache/e2e.sh 15`).
 - **Build-time handler-wiring guard.** `runPostbuild` now checks the CSP
   handler is wired in the file the installed Next.js major actually reads:
   `middleware.*` on Next 15, `proxy.*` on Next 16+. A mismatch (a `proxy.*` on

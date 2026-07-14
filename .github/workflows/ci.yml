@@ -90,3 +90,16 @@ jobs:
       # Turbopack accepts the config. See examples/next15-sri/README.md.
       - name: Next 15 latest (zero-'self' SRI, Turbopack)
         run: bash examples/next15-sri/e2e.sh 15 turbopack
+
+  e2e-next15-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      - name: Next 15 latest (cache handler / ISR cache states)
+        run: bash examples/next15-cache/e2e.sh 15
