@@ -114,9 +114,10 @@ read `proxy.ts`; if you create one it ships no CSP and raises no error, so a Nex
 app must wire `middleware.ts`. The runtime function is the same. Only the file name
 and the export name change.
 
-The proxy runs only on the Node.js runtime, because it imports Node built-ins to
-read the manifest and mint nonces. Next 15 middleware runs on the Edge runtime by
-default, so set `runtime: 'nodejs'` to opt in:
+The proxy runs only on the Node.js runtime, because the manifest loader
+statically imports `node:fs` to read the manifest from disk. (Nonces use Web
+Crypto, which runs on either runtime.) Next 15 middleware runs on the Edge
+runtime by default, so set `runtime: 'nodejs'` to opt in:
 
 ```ts
 // middleware.ts  (Next 15, Node.js runtime)

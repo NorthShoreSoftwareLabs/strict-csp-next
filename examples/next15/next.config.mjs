@@ -16,6 +16,10 @@ const nextConfig = {
   outputFileTracingRoot: here,
 }
 
-// withStrictCsp enables `experimental.sri` (default algorithm sha256) so static
-// and ISR routes get integrity hashes and a fully strict CSP with zero 'self'.
+// withStrictCsp enables `experimental.sri` (default algorithm sha256) so Next
+// emits `integrity` on bundle scripts. That alone does NOT drop `'self'`: the
+// zero-'self' static path also needs the integrity backfill
+// (`runPostbuild({ backfillIntegrity: true })` / `postbuild --backfill`), which
+// this example does not run. So `/` keeps `script-src 'self' <hashes>`, and the
+// e2e asserts exactly that. See docs/compatibility.md for the zero-'self' path.
 export default withStrictCsp(nextConfig)

@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Build-time handler-wiring guard.** `runPostbuild` now checks the CSP
+  handler is wired in the file the installed Next.js major actually reads:
+  `middleware.*` on Next 15, `proxy.*` on Next 16+. A mismatch (a `proxy.*` on
+  Next 15, or a `middleware.*` on Next 16+) is otherwise ignored by the
+  framework with no error, silently shipping the app with no CSP. The guard
+  warns loudly, scans the project root and a `src/` subdir, and reports the
+  message on `PostbuildResult.wiringWarning`. It never warns when both or
+  neither file is present, or when the Next version is undetectable, and never
+  throws. Exposed as `checkHandlerWiring(projectDir, nextMajor)`.
 - **Subresource Integrity (SRI) support for static/ISR routes.** When
   `experimental.sri` is enabled (done automatically by `withStrictCsp`), the
   library extracts `integrity` hashes from `<script>` tags in prerendered HTML

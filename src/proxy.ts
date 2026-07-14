@@ -61,9 +61,10 @@ function warnMissingManifestOnce(options: StrictCspProxyOptions): void {
  *
  * On Next.js 15, middleware must run on the Node.js runtime:
  * `export const config = { runtime: 'nodejs' }` (stable in 15.5). The proxy
- * module imports Node built-ins (`node:fs` for the manifest read, `node:crypto`
- * for the nonce) and cannot run on the Edge runtime, so there is no Edge-safe
- * path even when the manifest is passed in.
+ * module statically imports `node:fs` (via the manifest loader) and so cannot
+ * run on the Edge runtime; there is no Edge-safe path even when the manifest is
+ * passed in. (Nonces are minted with Web Crypto, `globalThis.crypto`, which is
+ * available on both runtimes and is not the constraint.)
  */
 export function createStrictCsp(options: StrictCspProxyOptions = {}) {
 	return function strictCsp(request: NextRequest): NextResponse {
