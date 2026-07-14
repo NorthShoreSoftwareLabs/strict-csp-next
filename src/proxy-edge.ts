@@ -27,10 +27,12 @@ export interface StrictCspEdgeOptions extends StrictCspOptions {
  * `strict-csp-next/proxy`. Its entire import graph reaches NO Node built-ins:
  * it imports only `next/server`, the pure `planCsp` decision core (which uses
  * `globalThis.crypto.getRandomValues` for the nonce), and the shared types.
- * `strict-csp-next/proxy` cannot run on Edge because it statically imports
- * `node:fs` (manifest disk read) and `node:crypto` (nonce); this entry drops
- * both by requiring the manifest to be imported and passed in via
- * `options.manifest` — it never touches the disk.
+ * `strict-csp-next/proxy` cannot run on Edge because reading the manifest from
+ * disk pulls `node:fs`/`node:path` (and `node:crypto`, via the shared hashing
+ * module) into its import graph. This entry drops all of them by requiring the
+ * manifest to be imported and passed in via `options.manifest` — it never
+ * touches the disk. The per-request nonce uses Web Crypto on both runtimes, so
+ * it is not the constraint.
  *
  * Per request it looks up the route's build-time inline-script hashes and, for
  * routes with request-time output (dynamic / PPR), a fresh nonce, then sets
@@ -47,11 +49,28 @@ export interface StrictCspEdgeOptions extends StrictCspOptions {
  * export const middleware = createStrictCspEdge({ manifest })
  * ```
  */
+let warnedMissingManifestEdge = false;
+
 export function createStrictCspEdge(options: StrictCspEdgeOptions = {}) {
 	return function strictCspEdge(request: NextRequest): NextResponse {
 		// Edge-safe: the manifest is imported and passed in by the caller. When it
 		// is absent, planCsp falls back to a nonce-only policy — we never read disk.
 		const manifest = options.manifest ?? null;
+		// A missing manifest silently breaks hydration on static/PPR shells (their
+		// inline scripts get neither a hash nor the nonce). Make it loud, once, so
+		// it is diagnosable — the Edge entry hits this more easily than the Node
+		// proxy since the manifest must be imported and passed in by hand.
+		if (!manifest && !warnedMissingManifestEdge) {
+			warnedMissingManifestEdge = true;
+			console.warn(
+				`strict-csp-next: createStrictCspEdge() was called without a manifest. ` +
+					`On the Edge runtime there is no disk read, so prerendered routes fall ` +
+					`back to a nonce-only policy, which breaks hydration on static/PPR ` +
+					`shells. Import it and pass it in: import manifest from ` +
+					`'./.next/strict-csp-manifest.json' with { type: 'json' }; ` +
+					`createStrictCspEdge({ manifest }).`,
+			);
+		}
 
 		const plan = planCsp(manifest, request.nextUrl.pathname, options);
 

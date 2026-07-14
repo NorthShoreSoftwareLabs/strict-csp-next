@@ -18,8 +18,9 @@ All notable changes to this project are documented here. The format follows
   neither file is present, or when the Next version is undetectable, and never
   throws. Exposed as `checkHandlerWiring(projectDir, nextMajor)`.
 - **`strict-csp-next/proxy-edge`: an Edge-runtime middleware entry.** The main
-  `strict-csp-next/proxy` statically imports `node:fs` (manifest disk read) and
-  `node:crypto` (nonce), so it cannot run in a Next.js Edge middleware bundle.
+  `strict-csp-next/proxy` reads the manifest from disk, which pulls `node:fs`/
+  `node:path` (and `node:crypto`, via the shared hashing module) into its import
+  graph, so it cannot run in a Next.js Edge middleware bundle.
   `createStrictCspEdge(options)` has an import graph that reaches no Node
   built-ins — it imports only `next/server`, the pure `planCsp` decision core
   (nonce via `globalThis.crypto`), and the shared types. The manifest is imported

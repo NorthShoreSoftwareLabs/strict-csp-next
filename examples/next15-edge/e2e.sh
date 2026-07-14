@@ -6,8 +6,8 @@
 #
 # The whole point of this example is to PROVE that `strict-csp-next/proxy-edge`
 # and its import graph reach no Node built-ins, so an Edge middleware bundle that
-# imports it compiles. The main `strict-csp-next/proxy` cannot: it statically
-# imports `node:fs` (manifest disk read) and `node:crypto` (nonce).
+# imports it compiles. The main `strict-csp-next/proxy` cannot: its manifest disk
+# read pulls in `node:fs`/`node:path` (and `node:crypto`, via the hashing module).
 set -euo pipefail
 
 NEXT_VERSION="${1:-}"

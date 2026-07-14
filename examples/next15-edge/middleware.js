@@ -1,9 +1,9 @@
 // Next.js 15 middleware on the EDGE runtime (the default — note there is NO
 // `runtime: 'nodejs'` in the config below). The Edge bundle cannot use
-// `strict-csp-next/proxy`, which statically imports `node:fs` (manifest disk
-// read) and `node:crypto` (nonce). `strict-csp-next/proxy-edge` reaches no Node
-// built-ins: the manifest is imported here and passed in, and the nonce comes
-// from Web Crypto. Per request it sets `script-src 'self' <hashes> 'nonce-...'`.
+// `strict-csp-next/proxy`, whose manifest disk read pulls in `node:fs`/`node:path`
+// (and `node:crypto`, via the shared hashing module). `strict-csp-next/proxy-edge`
+// reaches no Node built-ins: the manifest is imported here and passed in, and the
+// nonce comes from Web Crypto. Per request it sets `script-src 'self' <hashes> 'nonce-...'`.
 import { createStrictCspEdge } from 'strict-csp-next/proxy-edge'
 // Import the committed build manifest so it is bundled into the Edge middleware
 // (there is no disk to read on Edge). The file is written by `node postbuild.mjs`
