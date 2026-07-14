@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { loadManifest, manifestPath } from "./manifest.js";
-import { planCsp } from "./plan.js";
+import { planCsp, sanitizeRequestHeaders } from "./plan.js";
 import type { CspManifest, StrictCspOptions } from "./types.js";
 
 export interface StrictCspProxyOptions extends StrictCspOptions {
@@ -74,10 +74,17 @@ export function createStrictCsp(options: StrictCspProxyOptions = {}) {
 
 		const plan = planCsp(manifest, request.nextUrl.pathname, options);
 
-		// When static routes are served via CDN headers, leave them untouched.
-		if (plan.skip) return NextResponse.next();
+		// Drop client-controlled request headers (inbound CSP / x-nonce) before the
+		// render sees them; the CSP and x-nonce this proxy owns are re-set below. On
+		// the skip path they stay stripped.
+		const requestHeaders = sanitizeRequestHeaders(request.headers);
 
-		const requestHeaders = new Headers(request.headers);
+		// When static routes are served via CDN headers, leave the policy untouched
+		// (but still forward the sanitized request headers).
+		if (plan.skip) {
+			return NextResponse.next({ request: { headers: requestHeaders } });
+		}
+
 		// Next reads the nonce from the request CSP header at render time.
 		requestHeaders.set("content-security-policy", plan.policy!);
 		if (plan.nonce) requestHeaders.set("x-nonce", plan.nonce);

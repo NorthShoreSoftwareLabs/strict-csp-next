@@ -40,7 +40,7 @@ export {
 	writeManifest,
 } from "./manifest.js";
 export type { CspPlan, CspPlanOptions } from "./plan.js";
-export { generateNonce, planCsp } from "./plan.js";
+export { generateNonce, planCsp, sanitizeRequestHeaders } from "./plan.js";
 export { buildMetaPolicy, buildPolicy, cspHeaderName } from "./policy.js";
 export type { PostbuildOptions, PostbuildResult } from "./postbuild.js";
 export { checkHandlerWiring, runPostbuild } from "./postbuild.js";

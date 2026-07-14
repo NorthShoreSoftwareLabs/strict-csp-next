@@ -35,6 +35,29 @@ const SCRIPT_DIRECTIVES = new Set([
 	"default-src",
 ]);
 
+// The more-specific script directives a caller may set. CSP3 browsers consult
+// these for `<script>` elements / inline handlers and do NOT fall back to
+// `script-src`, so the library-owned credentials must be mirrored into whichever
+// of these the caller defines. Matched case-insensitively, since CSP directive
+// names are case-insensitive (a `Script-Src-Elem` shadows `script-src` too).
+const MORE_SPECIFIC_SCRIPT_DIRECTIVES = new Set([
+	"script-src-elem",
+	"script-src-attr",
+]);
+
+/** Dedupe a source list, preserving first-seen order. */
+function dedupeSources(values: string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const v of values) {
+		if (!seen.has(v)) {
+			seen.add(v);
+			out.push(v);
+		}
+	}
+	return out;
+}
+
 function assertSafeValue(name: string, value: string): void {
 	if (UNSAFE_VALUE.test(value)) {
 		throw new Error(
@@ -116,8 +139,11 @@ function sanitizeScriptDirectives(
  *   (+ optional `'strict-dynamic'`).
  *
  * Caller additions to `script-src` are merged in, except `'unsafe-inline'`
- * and `'unsafe-eval'`, which are stripped so the strict guarantee holds. All
- * directive names and values are validated to prevent policy injection.
+ * and `'unsafe-eval'`, which are stripped so the strict guarantee holds. A
+ * caller-supplied `script-src-elem` / `script-src-attr` has the computed
+ * `script-src` sources mirrored into it, so the more-specific directive cannot
+ * shadow `script-src` and drop the hashes/nonce. All directive names and values
+ * are validated to prevent policy injection.
  *
  * @param externalIntegrity - SRI integrity hashes from `<script>` tags in
  *   prerendered HTML (e.g. `['sha256-abc']`). Pass `[]` or `undefined` when
@@ -210,6 +236,28 @@ export function buildPolicy(
 		"style-src": styleSrc,
 		"script-src": scriptSrc,
 	};
+
+	// If a caller set `script-src-elem` / `script-src-attr`, it would otherwise
+	// shadow the library-owned `script-src`: CSP3 browsers use the more-specific
+	// directive for script elements/attributes and never fall back to `script-src`,
+	// so those inline scripts would lose their hashes and nonce and be blocked. It
+	// also breaks Next's nonce reader, which takes the FIRST `script-src*` directive
+	// it finds (`dir.startsWith('script-src')`) and would read the credential-less
+	// one, so the render stamps no nonce. Mirror the computed `script-src` sources
+	// into any such directive the caller set (their extra sources kept, deduped) so
+	// the strict credentials travel with the more-specific directive too. Iterate
+	// the caller's real keys so mixed-case names (`Script-Src-Elem`) are covered.
+	for (const name of Object.keys(directives)) {
+		if (!MORE_SPECIFIC_SCRIPT_DIRECTIVES.has(name.toLowerCase())) continue;
+		const userValue = directives[name];
+		if (!Array.isArray(userValue)) continue;
+		// Drop `'none'`: it only means "block everything" as the SOLE source. Once we
+		// add the library credentials the list has other sources, where browsers
+		// ignore `'none'` but CSP tooling flags it. The library guarantees the app's
+		// own scripts run, so the credentials win over a caller's `'none'`.
+		const extras = userValue.filter((v) => v.trim().toLowerCase() !== "'none'");
+		directives[name] = dedupeSources([...scriptSrc, ...extras]);
+	}
 
 	if (options.reportUri) {
 		assertSafeValue("report-uri", options.reportUri);
