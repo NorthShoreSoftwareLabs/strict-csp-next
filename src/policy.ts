@@ -38,11 +38,12 @@ const SCRIPT_DIRECTIVES = new Set([
 // The more-specific script directives a caller may set. CSP3 browsers consult
 // these for `<script>` elements / inline handlers and do NOT fall back to
 // `script-src`, so the library-owned credentials must be mirrored into whichever
-// of these the caller defines.
-const MORE_SPECIFIC_SCRIPT_DIRECTIVES = [
+// of these the caller defines. Matched case-insensitively, since CSP directive
+// names are case-insensitive (a `Script-Src-Elem` shadows `script-src` too).
+const MORE_SPECIFIC_SCRIPT_DIRECTIVES = new Set([
 	"script-src-elem",
 	"script-src-attr",
-] as const;
+]);
 
 /** Dedupe a source list, preserving first-seen order. */
 function dedupeSources(values: string[]): string[] {
@@ -244,12 +245,18 @@ export function buildPolicy(
 	// it finds (`dir.startsWith('script-src')`) and would read the credential-less
 	// one, so the render stamps no nonce. Mirror the computed `script-src` sources
 	// into any such directive the caller set (their extra sources kept, deduped) so
-	// the strict credentials travel with the more-specific directive too.
-	for (const name of MORE_SPECIFIC_SCRIPT_DIRECTIVES) {
+	// the strict credentials travel with the more-specific directive too. Iterate
+	// the caller's real keys so mixed-case names (`Script-Src-Elem`) are covered.
+	for (const name of Object.keys(directives)) {
+		if (!MORE_SPECIFIC_SCRIPT_DIRECTIVES.has(name.toLowerCase())) continue;
 		const userValue = directives[name];
-		if (Array.isArray(userValue)) {
-			directives[name] = dedupeSources([...scriptSrc, ...userValue]);
-		}
+		if (!Array.isArray(userValue)) continue;
+		// Drop `'none'`: it only means "block everything" as the SOLE source. Once we
+		// add the library credentials the list has other sources, where browsers
+		// ignore `'none'` but CSP tooling flags it. The library guarantees the app's
+		// own scripts run, so the credentials win over a caller's `'none'`.
+		const extras = userValue.filter((v) => v.trim().toLowerCase() !== "'none'");
+		directives[name] = dedupeSources([...scriptSrc, ...extras]);
 	}
 
 	if (options.reportUri) {

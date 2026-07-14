@@ -107,6 +107,21 @@ test("script-src-elem/-attr mirror the computed script-src credentials", () => {
 	const attr = dir("script-src-attr");
 	assert.match(attr, /'sha256-shell'/);
 	assert.match(attr, /'nonce-NONCE123'/);
+	// `'none'` is dropped once real credentials are mirrored in (it is only valid
+	// as the sole source; leftover `'none'` is ignored by browsers but flags tools).
+	assert.doesNotMatch(attr, /'none'/);
+});
+
+test("credential mirroring matches script directives case-insensitively", () => {
+	// CSP directive names are case-insensitive, so `Script-Src-Elem` shadows
+	// script-src in the browser just the same and must get the mirrored credentials.
+	const csp = buildPolicy(["'sha256-shell'"], "NONCE123", {
+		directives: { "Script-Src-Elem": ["https://cdn.example.com"] },
+	});
+	const elem = csp.split("; ").find((d) => d.startsWith("Script-Src-Elem"));
+	assert.match(elem, /'sha256-shell'/);
+	assert.match(elem, /'nonce-NONCE123'/);
+	assert.match(elem, /https:\/\/cdn\.example\.com/);
 });
 
 test("Next's nonce reader finds the nonce even with a caller script-src-elem", () => {
