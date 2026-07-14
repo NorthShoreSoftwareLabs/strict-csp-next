@@ -3,7 +3,7 @@ import { test } from "node:test";
 // planCsp is the pure decision core of the proxy. Testing it here exercises the
 // security-critical branches (nonce, no-store, report-only, skipStatic) in
 // milliseconds, without needing the Next.js runtime that the e2e matrix covers.
-import { planCsp } from "../dist/index.js";
+import { planCsp, sanitizeRequestHeaders } from "../dist/index.js";
 
 const manifest = {
 	version: 1,
@@ -147,6 +147,22 @@ test("static route with PARTIAL SRI coverage keeps 'self' via planCsp", () => {
 		.find((d) => d.startsWith("script-src"));
 	assert.match(scriptSrc, /'self'/);
 	assert.doesNotMatch(scriptSrc, /'strict-dynamic'/);
+});
+
+test("sanitizeRequestHeaders strips client-controlled CSP and x-nonce", () => {
+	const incoming = new Headers({
+		"content-security-policy": "script-src 'unsafe-inline'",
+		"content-security-policy-report-only": "script-src 'unsafe-inline'",
+		"x-nonce": "attacker-chosen",
+		"user-agent": "test", // an unrelated header is preserved
+	});
+	const clean = sanitizeRequestHeaders(incoming);
+	assert.equal(clean.get("content-security-policy"), null);
+	assert.equal(clean.get("content-security-policy-report-only"), null);
+	assert.equal(clean.get("x-nonce"), null);
+	assert.equal(clean.get("user-agent"), "test");
+	// The input is not mutated (a fresh Headers is returned).
+	assert.equal(incoming.get("x-nonce"), "attacker-chosen");
 });
 
 test("each request gets a unique nonce", () => {
