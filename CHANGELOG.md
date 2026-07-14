@@ -17,6 +17,19 @@ All notable changes to this project are documented here. The format follows
   message on `PostbuildResult.wiringWarning`. It never warns when both or
   neither file is present, or when the Next version is undetectable, and never
   throws. Exposed as `checkHandlerWiring(projectDir, nextMajor)`.
+- **`strict-csp-next/proxy-edge`: an Edge-runtime middleware entry.** The main
+  `strict-csp-next/proxy` statically imports `node:fs` (manifest disk read) and
+  `node:crypto` (nonce), so it cannot run in a Next.js Edge middleware bundle.
+  `createStrictCspEdge(options)` has an import graph that reaches no Node
+  built-ins — it imports only `next/server`, the pure `planCsp` decision core
+  (nonce via `globalThis.crypto`), and the shared types. The manifest is imported
+  by the caller and passed in via `options.manifest` (no disk read); absent, it
+  falls back to a nonce-only policy. Same request/response header behavior as the
+  Node proxy (CSP on both request and response, per-request nonce for
+  dynamic/PPR, hashes for static/ISR, `no-store` on enforced nonced responses).
+  Proven end to end by `examples/next15-edge`, which runs the middleware on the
+  Edge runtime (no `runtime: 'nodejs'`) with zero CSP violations across `/`
+  (hashes) and `/dynamic` (per-request nonce).
 - **Subresource Integrity (SRI) support for static/ISR routes.** When
   `experimental.sri` is enabled (done automatically by `withStrictCsp`), the
   library extracts `integrity` hashes from `<script>` tags in prerendered HTML

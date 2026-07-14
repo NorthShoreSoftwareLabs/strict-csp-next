@@ -1,7 +1,13 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-	entry: ["src/index.ts", "src/proxy.ts", "src/bin.ts", "src/cache-handler.ts"],
+	entry: [
+		"src/index.ts",
+		"src/proxy.ts",
+		"src/proxy-edge.ts",
+		"src/bin.ts",
+		"src/cache-handler.ts",
+	],
 	format: ["esm", "cjs"],
 	dts: true,
 	clean: true,
