@@ -22,6 +22,7 @@ import {
 	makeAssetResolver,
 } from "./integrity-backfill.js";
 import {
+	detectNextVersion,
 	generateManifest,
 	MANIFEST_FILENAME,
 	manifestPath,
@@ -107,6 +108,13 @@ export interface PostbuildResult {
 	totalHashes: number;
 	/** Total number of external script integrity hashes across all routes. */
 	totalIntegrityHashes: number;
+	/**
+	 * A loud warning emitted when the CSP handler is wired in the wrong file for
+	 * the installed Next.js major (a `proxy.*` on Next 15, or a `middleware.*` on
+	 * Next 16+), which the framework silently ignores — shipping the app with no
+	 * CSP. `undefined` when the wiring is unambiguous or undetectable.
+	 */
+	wiringWarning?: string;
 	/**
 	 * Routes where the independent signals disagree, signaling a likely
 	 * missed/misparsed script (drift): the tokenizer count, the independent coarse
@@ -292,6 +300,16 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 		);
 	}
 
+	// Catch the silent "wrong wiring file" trap: Next 15 reads `middleware.ts`,
+	// Next 16 reads `proxy.ts`. A mismatch is ignored by the framework with no
+	// error, so the app ships with no CSP. Warn loudly (never throws).
+	const nextVersion = manifest.nextVersion ?? detectNextVersion(projectDir);
+	const nextMajor = nextVersion ? Number.parseInt(nextVersion, 10) : undefined;
+	const wiringWarning = checkHandlerWiring(
+		projectDir,
+		Number.isFinite(nextMajor) ? nextMajor : undefined,
+	);
+
 	return {
 		manifestPath: path,
 		headersPath,
@@ -302,8 +320,68 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 		routeCount: manifest.routes.length,
 		totalHashes,
 		totalIntegrityHashes,
+		wiringWarning,
 		uncovered,
 	};
+}
+
+/**
+ * File extensions Next.js accepts for the `middleware` / `proxy` convention.
+ */
+const WIRING_EXTENSIONS = ["ts", "tsx", "js", "mjs", "cjs", "jsx"] as const;
+
+/**
+ * Return true if `<dir>/<base>.{ext}` exists for any accepted extension. Next
+ * allows the wiring file at the project root or under a `src/` subdir, so both
+ * are probed by the caller.
+ */
+function wiringFileExists(dir: string, base: string): boolean {
+	return WIRING_EXTENSIONS.some((ext) =>
+		existsSync(join(dir, `${base}.${ext}`)),
+	);
+}
+
+/**
+ * Guard against the silent "wrong wiring file" trap. Next 15 runs the CSP
+ * handler from `middleware.ts`; Next 16 renamed the convention to `proxy.ts`.
+ * If the handler lives in the file the installed major does NOT read, the
+ * framework ignores it with no error and the app ships with no CSP.
+ *
+ * Warns ONLY on an unambiguous mismatch — a `proxy.*` on Next 15 with no
+ * `middleware.*`, or a `middleware.*` on Next 16+ with no `proxy.*`. It never
+ * warns merely because a file is absent (static-header-only setups legitimately
+ * have neither), and stays silent when `nextMajor` is undefined. Scans the
+ * project root and a `src/` subdir. Returns the warning string (or `undefined`)
+ * for testability and also emits it via `console.warn`. Never throws.
+ */
+export function checkHandlerWiring(
+	projectDir: string,
+	nextMajor: number | undefined,
+): string | undefined {
+	if (nextMajor === undefined) return undefined;
+
+	const srcDir = join(projectDir, "src");
+	const hasMiddleware =
+		wiringFileExists(projectDir, "middleware") ||
+		wiringFileExists(srcDir, "middleware");
+	const hasProxy =
+		wiringFileExists(projectDir, "proxy") || wiringFileExists(srcDir, "proxy");
+
+	let warning: string | undefined;
+	if (nextMajor <= 15 && hasProxy && !hasMiddleware) {
+		warning =
+			`strict-csp-next: found a \`proxy.*\` file but the installed Next.js is ` +
+			`v${nextMajor}, which ignores it — rename it to \`middleware.ts\` with ` +
+			`\`export const config = { runtime: 'nodejs' }\`, or the app ships no CSP.`;
+	} else if (nextMajor >= 16 && hasMiddleware && !hasProxy) {
+		warning =
+			`strict-csp-next: found a \`middleware.*\` file but the installed Next.js ` +
+			`is v${nextMajor}, which renamed the convention to \`proxy.ts\` — rename ` +
+			`it, or the CSP handler will not run and the app ships no CSP.`;
+	}
+
+	if (warning) console.warn(warning);
+	return warning;
 }
 
 /**

@@ -44,10 +44,12 @@ the entry file is `middleware.ts`. Next 15 ignores `proxy.ts` and ships no CSP i
 you create one, with no error, so a Next 15 app must wire `middleware.ts`. The
 runtime function is the same. Only the file name and the export name change.
 
-The proxy runs only on the Node.js runtime, because it statically imports Node
-built-ins (`node:fs` to read the manifest, `node:crypto` to mint nonces). Next 15
-middleware runs on the Edge runtime by default, so opt the middleware into the
-Node.js runtime with `runtime: 'nodejs'` in `config`. The disk read then finds the
+The proxy runs only on the Node.js runtime, because it statically imports
+`node:fs` (via the manifest loader) to read the manifest from disk. Nonces are
+minted with Web Crypto (`globalThis.crypto`), which runs on either runtime, so
+the disk read is the constraint. Next 15 middleware runs on the Edge runtime by
+default, so opt the middleware into the Node.js runtime with `runtime: 'nodejs'`
+in `config`. The disk read then finds the
 manifest exactly as the self-hosted server default does, with no manifest import.
 This wiring uses the [matcher above](#the-matcher) unchanged:
 

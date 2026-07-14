@@ -238,7 +238,12 @@ export function generateManifest(
 	};
 }
 
-function detectNextVersion(projectDir: string): string | undefined {
+/**
+ * Read the installed Next.js version from `node_modules/next/package.json`.
+ * Best-effort: returns `undefined` if Next is not resolvable or the version is
+ * missing/malformed. Exported so the postbuild wiring guard can reuse it.
+ */
+export function detectNextVersion(projectDir: string): string | undefined {
 	try {
 		const pkg = JSON.parse(
 			readFileSync(

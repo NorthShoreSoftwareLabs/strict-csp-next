@@ -7,13 +7,15 @@ or how scripts are emitted.
 
 ## Next.js version support
 
-The library supports the App Router on Next.js 15.2 and up, including Next 16. Next
-15.5.0 or later is recommended, because the proxy runs only on the Node.js
-middleware runtime and that runtime is stable there. On 15.2 through 15.4 it works
-only with `experimental: { nodeMiddleware: true }` in `next.config`. The entry file
-differs by version: `middleware.ts` on Next 15, `proxy.ts` on Next 16. The runtime
-function is the same in both. See [deployment](./deployment.md#nextjs-15) for the
-Next 15 wiring.
+The declared peer floor is Next.js 15.5.0 (`peerDependencies.next: ">=15.5.0"`),
+which covers the App Router on 15.5 and up, including Next 16. 15.5 is the floor
+because the proxy runs only on the Node.js middleware runtime and that runtime is
+stable there. 15.2 through 15.4 may work with `experimental: { nodeMiddleware:
+true }` in `next.config`, but that runtime is experimental on those versions and
+sits below the declared peer range, so expect peer warnings and treat it as
+best-effort rather than supported. The entry file differs by version:
+`middleware.ts` on Next 15, `proxy.ts` on Next 16. The runtime function is the
+same in both. See [deployment](./deployment.md#nextjs-15) for the Next 15 wiring.
 
 Dropping `'self'` with SRI needs Next 15.2 or later. `experimental.sri` emits the
 `integrity` attribute on the Node render only from 15.2. The config key parses on
