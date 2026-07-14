@@ -5,6 +5,22 @@ library reads the build output and the manifest from disk and matches routes by
 path, so the settings that matter are the ones that change paths, rendering mode,
 or how scripts are emitted.
 
+## Next.js version support
+
+The library supports the App Router on Next.js 15.2 and up, including Next 16. Next
+15.5.0 or later is recommended, because the proxy runs only on the Node.js
+middleware runtime and that runtime is stable there. On 15.2 through 15.4 it works
+only with `experimental: { nodeMiddleware: true }` in `next.config`. The entry file
+differs by version: `middleware.ts` on Next 15, `proxy.ts` on Next 16. The runtime
+function is the same in both. See [deployment](./deployment.md#nextjs-15) for the
+Next 15 wiring.
+
+Dropping `'self'` with SRI needs Next 15.2 or later. `experimental.sri` emits the
+`integrity` attribute on the Node render only from 15.2. The config key parses on
+15.0 and 15.1 but does nothing on Node pages, so below 15.2 the static and export
+paths keep the `script-src 'self'` plus inline-hash shape instead of the
+zero-`'self'` path. Everything else works from 15.2.
+
 ## next.config settings
 
 | Setting | Status |
@@ -15,7 +31,7 @@ or how scripts are emitted.
 | `trailingSlash` | Handled. The proxy normalizes a trailing slash at lookup, and route classification tolerates trailing-slash manifest keys. |
 | `output: 'standalone'` | Supported. The build step copies the manifest into the bundle. See [deployment](./deployment.md#output-standalone-docker). |
 | `output: 'export'` | Supported via a `<meta>` CSP. See [deployment](./deployment.md#output-export-static-cdn-no-server). |
-| `cacheComponents` / `experimental.ppr` | Supported. Every prerendered route becomes PPR. See [limitations](#limitations). |
+| `cacheComponents` / `experimental.ppr` | Supported. Every prerendered route becomes PPR. On Next 16 this is `cacheComponents: true`; on Next 15 the equivalent is `experimental: { ppr: 'incremental', dynamicIO: true }`. See [limitations](#limitations). |
 | `crossOrigin`, `generateBuildId`, `cleanDistDir`, `compress` | No effect. Hashes are content-based and recomputed from the actual built HTML. |
 | `useFileSystemPublicRoutes: false` | Not supported. A custom server that owns routing is outside the manifest model. |
 
@@ -47,7 +63,11 @@ to not conflict (see [deployment](./deployment.md#keeping-static-routes-cdn-term
   `dynamic` config becomes a build error. So in cacheComponents mode the `static`
   / `isr` classification is unreachable. Every route is `ppr` (hashes for the
   shell, nonce for the resume), which is correct and verified, just not
-  CDN-cacheable. The `static` / `isr` paths apply to classic App Router apps.
+  CDN-cacheable. The `static` / `isr` paths apply to classic App Router apps. On
+  Next 15 the same app-wide PPR behavior comes from `experimental.ppr` with
+  `dynamicIO`; Next 16 unifies both under `cacheComponents`. The
+  `withStrictCsp({ cacheComponents: true })` config example is Next 16 only; on
+  Next 15, set `experimental: { ppr: 'incremental', dynamicIO: true }` yourself.
 - **Route matching is by concrete path.** A fully static route the manifest
   misses will not hydrate, because its hash is absent and there is no nonce to
   fall back to. A miss on a dynamic or PPR route is safe, since Next stamps the
@@ -72,12 +92,16 @@ to not conflict (see [deployment](./deployment.md#keeping-static-routes-cdn-term
   filenames it embeds are environment-specific. So the imported manifest must come
   from a build on the deploy host, and `generateBuildId` must be pinned, or one
   shell script per page is left uncovered. See [deployment](./deployment.md#vercel-and-other-bundledserverless-hosts).
-- **Cache-fill coverage is undocumented Next behavior.** The cache handler covers
-  the cache-fill `MISS` render by writing the header onto the same value object
-  Next sends, in place, which works because Next 16 awaits the cache `set` before
-  sending the response. That ordering is not a documented contract. If a future
-  Next version sends before awaiting `set`, the fill render reverts to fail-open
-  (page renders, no CSP on that one request; every later hit still covered). The
+- **Cache-fill coverage is undocumented Next behavior, and differs by Next
+  version.** The cache handler covers the cache-fill `MISS` render by writing the
+  header onto the same value object Next sends, in place. On Next 16 this lands on
+  the served response, because Next 16 awaits `cacheHandler.set()` before sending
+  the response. Next 15 resolves the HTTP response *before* awaiting
+  `cacheHandler.set()` on an ordinary `MISS`, so on Next 15 that one fill render is
+  a timing race and may fail-open (the page renders, no CSP on that first request;
+  every later hit still covered). On-demand revalidation (`revalidatePath` /
+  `revalidateTag`), `HIT`, and `STALE` are covered on both 15 and 16. Neither
+  ordering is a documented contract, so a change on either version is possible. The
   `examples/isr-cache` e2e asserts the `MISS` case, so it is the tripwire for that
   drift when run against a new Next version.
 

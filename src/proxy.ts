@@ -43,17 +43,27 @@ function warnMissingManifestOnce(options: StrictCspProxyOptions): void {
 			`Prerendered routes will fall back to a nonce-only policy, which breaks ` +
 			`hydration on static/PPR shells. On Vercel, import the manifest and pass ` +
 			`it via createStrictCsp({ manifest }), or add it to ` +
-			`outputFileTracingIncludes. See the README.`,
+			`outputFileTracingIncludes. On Next.js 15, run the middleware on the ` +
+			`Node.js runtime (\`runtime: 'nodejs'\`, stable in 15.5) so the manifest ` +
+			`disk read works; the proxy imports Node built-ins and cannot run on ` +
+			`Edge. See the README.`,
 	);
 }
 
 /**
- * Create the strict-CSP proxy (Next.js 16 `proxy.ts`, always Node.js runtime).
- * Per request it looks up the route's build-time inline-script hashes and, for
- * routes with request-time output (dynamic / PPR), a fresh nonce, then sets
- * `script-src 'self' <hashes> 'nonce-...'` on BOTH the request header (so the
- * Next.js render/resume stamps the nonce) and the response header. Static and
- * ISR routes are covered by hashes alone and stay cacheable.
+ * Create the strict-CSP proxy. Works as the Next.js 16 `proxy.ts` export (which
+ * always runs on the Node.js runtime) and as a Next.js 15 `middleware.ts`
+ * export. Per request it looks up the route's build-time inline-script hashes
+ * and, for routes with request-time output (dynamic / PPR), a fresh nonce, then
+ * sets `script-src 'self' <hashes> 'nonce-...'` on BOTH the request header (so
+ * the Next.js render/resume stamps the nonce) and the response header. Static
+ * and ISR routes are covered by hashes alone and stay cacheable.
+ *
+ * On Next.js 15, middleware must run on the Node.js runtime:
+ * `export const config = { runtime: 'nodejs' }` (stable in 15.5). The proxy
+ * module imports Node built-ins (`node:fs` for the manifest read, `node:crypto`
+ * for the nonce) and cannot run on the Edge runtime, so there is no Edge-safe
+ * path even when the manifest is passed in.
  */
 export function createStrictCsp(options: StrictCspProxyOptions = {}) {
 	return function strictCsp(request: NextRequest): NextResponse {
