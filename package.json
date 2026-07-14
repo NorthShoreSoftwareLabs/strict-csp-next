@@ -60,7 +60,7 @@
     "prepare": "pnpm build"
   },
   "peerDependencies": {
-    "next": ">=16"
+    "next": ">=15.5.0"
   },
   "peerDependenciesMeta": {
     "next": {

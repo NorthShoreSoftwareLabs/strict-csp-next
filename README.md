@@ -1,7 +1,7 @@
 # strict-csp-next
 
-Strict Content-Security-Policy for the Next.js 16 App Router. No `'unsafe-inline'`
-and no `'unsafe-eval'` for scripts, and your pages stay static.
+Strict Content-Security-Policy for the Next.js App Router, version 15.5 and up. No
+`'unsafe-inline'` and no `'unsafe-eval'` for scripts, and your pages stay static.
 
 ```bash
 npm install strict-csp-next
@@ -9,7 +9,10 @@ npm install strict-csp-next
 # or: yarn add strict-csp-next
 ```
 
-> Requires Next.js 16+ (App Router, `proxy.ts`).
+> Requires Next.js 15.5+ (App Router), where the Node.js middleware runtime is
+> stable. Next 15.2 through 15.4 work with `experimental.nodeMiddleware`. The entry
+> file is `proxy.ts` on Next 16 and `middleware.ts` on Next 15. See
+> [Next.js 15](#nextjs-15).
 >
 > Status: v0.1, early. The core mechanism is proven in a real browser across
 > static, dynamic, and PPR / Cache Components rendering. See [the proof](#proven).
@@ -104,6 +107,29 @@ import { headers } from 'next/headers'
 const nonce = (await headers()).get('x-nonce')
 ```
 
+### Next.js 15
+
+On Next.js 15 the entry file is `middleware.ts`, not `proxy.ts`. Next 15 does not
+read `proxy.ts`; if you create one it ships no CSP and raises no error, so a Next 15
+app must wire `middleware.ts`. The runtime function is the same. Only the file name
+and the export name change.
+
+The proxy runs only on the Node.js runtime, because it imports Node built-ins to
+read the manifest and mint nonces. Next 15 middleware runs on the Edge runtime by
+default, so set `runtime: 'nodejs'` to opt in:
+
+```ts
+// middleware.ts  (Next 15, Node.js runtime)
+export { strictCsp as middleware } from 'strict-csp-next/proxy'
+export const config = { runtime: 'nodejs', matcher: [ /* same matcher as proxy */ ] }
+```
+
+The Node.js middleware runtime is stable in Next 15.5. On 15.2 through 15.4 it is
+experimental and needs `experimental: { nodeMiddleware: true }` in `next.config`.
+
+The postbuild step, the options, and the matcher are identical to Next 16. See
+[Deployment](./docs/deployment.md#nextjs-15) for the full Next 15 wiring.
+
 ## Configuration
 
 Pass options to `createStrictCsp`:
@@ -139,6 +165,11 @@ Next leaves un-pinned:
 import { withStrictCsp } from 'strict-csp-next'
 export default withStrictCsp({ cacheComponents: true })
 ```
+
+`cacheComponents` is a Next.js 16 flag. On Next.js 15 the equivalent is
+`experimental: { ppr: 'incremental', dynamicIO: true }`, and the SRI backfill
+needs Next 15.2 or newer, where `experimental.sri` emits integrity on the Node.js
+runtime. Below 15.2 the static path keeps `'self'`.
 
 ```json
 // package.json

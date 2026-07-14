@@ -43,3 +43,16 @@ jobs:
         run: bash examples/matrix/standalone-e2e.sh
       - name: Static export
         run: bash examples/export/export-e2e.sh
+
+  e2e-next15:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      - name: Next 15 latest
+        run: bash examples/next15/e2e.sh 15

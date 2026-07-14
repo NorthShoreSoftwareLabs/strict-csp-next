@@ -37,6 +37,37 @@ auto-excluded, so add your own non-HTML routes to the list.
 > **Good to know.** Under `basePath`, Next prefixes the matcher `source` with the
 > base path for you. Leave the matcher as written.
 
+## Next.js 15
+
+The host sections below show `proxy.ts`, the Next.js 16 entry file. On Next.js 15
+the entry file is `middleware.ts`. Next 15 ignores `proxy.ts` and ships no CSP if
+you create one, with no error, so a Next 15 app must wire `middleware.ts`. The
+runtime function is the same. Only the file name and the export name change.
+
+The proxy runs only on the Node.js runtime, because it statically imports Node
+built-ins (`node:fs` to read the manifest, `node:crypto` to mint nonces). Next 15
+middleware runs on the Edge runtime by default, so opt the middleware into the
+Node.js runtime with `runtime: 'nodejs'` in `config`. The disk read then finds the
+manifest exactly as the self-hosted server default does, with no manifest import.
+This wiring uses the [matcher above](#the-matcher) unchanged:
+
+```ts
+// middleware.ts  (Next 15, Node.js runtime)
+export { strictCsp as middleware } from 'strict-csp-next/proxy'
+export const config = {
+  runtime: 'nodejs',
+  matcher: [ /* the matcher above */ ],
+}
+```
+
+Next 15.5 is the clean floor: the Node.js middleware runtime is stable there. On
+15.2 through 15.4 it is experimental and needs `experimental: { nodeMiddleware:
+true }` in `next.config`.
+
+Everything the [Server](#server-self-hosted-node) and host sections below describe
+about manifest delivery applies unchanged. On Vercel, follow the
+[Vercel section](#vercel-and-other-bundledserverless-hosts) for the manifest.
+
 ## Server (self-hosted Node)
 
 The default. The proxy reads `<distDir>/strict-csp-manifest.json` from the project
@@ -181,6 +212,66 @@ export const proxy = createStrictCsp({
   mode: process.env.NODE_ENV === 'development' ? 'report-only' : 'enforce',
 })
 ```
+
+## Report-only rollout
+
+For a first production adoption, ship the policy in report-only mode before you
+enforce it. In report-only mode the browser reports each violation to your collector
+and blocks nothing, so a missed inline script or a forgotten third-party origin
+surfaces as a report instead of a broken page.
+
+Set `mode: 'report-only'` and point `reportTo` at a group name wired through a
+`Reporting-Endpoints` header. The proxy sets that header for you when you also pass
+`reportToEndpoint` (see `src/types.ts`):
+
+```ts
+// proxy.ts  (or middleware.ts on Next 15)
+import { createStrictCsp } from 'strict-csp-next/proxy'
+
+export const proxy = createStrictCsp({
+  mode: 'report-only',
+  reportTo: 'csp',
+  reportToEndpoint: '/api/csp-report',
+})
+```
+
+Collect the reports in a Route Handler. Browsers POST violation reports as
+`application/reports+json`, a batched array of report objects. The endpoint is
+unauthenticated, so rate-limit it (via the platform WAF or middleware) and validate
+what you accept:
+
+```ts
+// app/api/csp-report/route.ts
+export async function POST(request: Request) {
+  const ct = request.headers.get('content-type') || ''
+  if (!ct.includes('json')) return new Response(null, { status: 415 })
+  const len = Number(request.headers.get('content-length') || 0)
+  if (len > 64 * 1024) return new Response(null, { status: 413 })
+  let reports: unknown
+  try { reports = await request.json() } catch { return new Response(null, { status: 400 }) }
+  if (!Array.isArray(reports)) return new Response(null, { status: 400 })
+  const clean = (v: unknown) =>
+    typeof v === 'string' ? v.replace(/[\r\n\x00-\x1f\x7f]/g, ' ').slice(0, 512) : ''
+  for (const r of reports.slice(0, 50)) {
+    const b = (r as { body?: Record<string, unknown> })?.body ?? {}
+    console.error('csp-violation', clean(b.documentURL), clean(b.blockedURL), clean(b.effectiveDirective))
+  }
+  return new Response(null, { status: 204 })
+}
+```
+
+The default matcher already excludes `/api/*`, so this route needs no matcher
+change. Watch the reports against real traffic until the violations stop, then flip
+to enforcement:
+
+```ts
+mode: 'enforce',
+```
+
+That one line is the whole cutover. Report-only and enforce differ only in the
+response header name (`Content-Security-Policy-Report-Only` versus
+`Content-Security-Policy`); the policy string is byte-identical, so what you
+validated in report-only is exactly what you enforce.
 
 ## Keeping static routes CDN-terminal
 

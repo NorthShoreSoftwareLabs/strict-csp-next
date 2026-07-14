@@ -77,3 +77,50 @@ jobs:
               body,
               labels: ['next-compat'],
             })
+
+  # Real Next 15 tripwire. The `compat` matrix legs above exercise proxy.js,
+  # which Next 15 ignores, so they pass vacuously. The next15 example uses a
+  # Node-runtime middleware.ts and is the actual Next 15 signal.
+  compat-next15:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install and build the library
+        run: pnpm install
+
+      - name: Next 15 end-to-end
+        run: bash examples/next15/e2e.sh 15
+
+      - name: Open an issue on scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Next.js 15 compatibility check failing`
+            const body = [
+              `The scheduled compatibility run failed against \`next@15\`.`,
+              ``,
+              `This usually means a Next.js release changed inline-script emission or`,
+              `the prerender manifest shape. See the run for details:`,
+              `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            ].join('\n')
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'next-compat',
+            })
+            if (existing.some((i) => i.title === title)) return
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['next-compat'],
+            })
