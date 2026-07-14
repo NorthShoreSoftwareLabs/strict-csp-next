@@ -8,3 +8,6 @@ out
 coverage
 examples/**/package-lock.json
 examples/**/pnpm-lock.yaml
+
+# Agent worktrees (created by the harness inside the repo)
+.claude/worktrees/

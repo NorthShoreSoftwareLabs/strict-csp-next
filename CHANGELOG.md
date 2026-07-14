@@ -68,6 +68,20 @@ All notable changes to this project are documented here. The format follows
   `countUncoveredExternalScripts`, `scanScripts`, `backfillIntegrity`,
   `makeAssetResolver`, `isCrossOrigin`, and the `RouteEntry.uncoveredExternal`
   field.
+- **Zero-`'self'` SRI browser e2e for Next.js 15 (`examples/next15-sri`, CI job
+  `e2e-next15-sri`).** A real Next 15 App Router app that runs the integrity
+  backfill (`runPostbuild({ backfillIntegrity: true })`) so every external
+  `<script src>` is pinned, then asserts the headline shape in Chromium: on the
+  static `/` and ISR `/isr` routes `script-src` has NO `'self'`, HAS
+  `'strict-dynamic'`, lists inline + integrity hashes, and the served HTML
+  carries `integrity` on every external script — with zero
+  `securitypolicyviolation` events and working hydration. The dynamic `/dynamic`
+  route keeps `'self'` plus a per-request nonce as the deliberate contrast.
+  Includes a Turbopack build variant (`e2e.sh 15 turbopack`): Next 15.5.x rejects
+  `experimental.sri` under Turbopack, so the zero-`'self'` path is a webpack-only
+  build there; the variant records that documented incompatibility explicitly
+  rather than passing silently, and runs the same assertions if a future
+  Turbopack accepts the config.
 
 ### Fixed
 
