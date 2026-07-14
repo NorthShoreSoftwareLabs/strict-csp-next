@@ -1,0 +1,21 @@
+{
+  "name": "strict-csp-next15-sri",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "next build && node postbuild.mjs",
+    "start": "next start -p 4500",
+    "dev": "next dev -p 4500",
+    "test": "node sri-test.mjs"
+  },
+  "dependencies": {
+    "next": "^15.5.20",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "strict-csp-next": "file:../../strict-csp-next.tgz"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}

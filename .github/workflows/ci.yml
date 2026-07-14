@@ -69,3 +69,24 @@ jobs:
       - run: pnpm install
       - name: Next 15 latest (Edge middleware)
         run: bash examples/next15-edge/e2e.sh 15
+
+  e2e-next15-sri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      # Zero-'self' SRI path: the integrity backfill pins every external script,
+      # so static/ISR routes drop 'self' and add 'strict-dynamic'.
+      - name: Next 15 latest (zero-'self' SRI, webpack)
+        run: bash examples/next15-sri/e2e.sh 15
+      # Turbopack production build (Next 15.5+). Next 15.5.x rejects
+      # experimental.sri under Turbopack, so this step records that documented
+      # incompatibility explicitly; it runs the same assertions if a future
+      # Turbopack accepts the config. See examples/next15-sri/README.md.
+      - name: Next 15 latest (zero-'self' SRI, Turbopack)
+        run: bash examples/next15-sri/e2e.sh 15 turbopack
