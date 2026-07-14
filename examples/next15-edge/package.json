@@ -1,0 +1,21 @@
+{
+  "name": "strict-csp-next15-edge",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "next build && node postbuild.mjs",
+    "start": "next start -p 4400",
+    "dev": "next dev -p 4400",
+    "test": "node edge-test.mjs"
+  },
+  "dependencies": {
+    "next": "15",
+    "react": "^19",
+    "react-dom": "^19",
+    "strict-csp-next": "file:../../strict-csp-next.tgz"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}

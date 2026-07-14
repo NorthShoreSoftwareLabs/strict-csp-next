@@ -38,6 +38,11 @@
       "import": "./dist/proxy.js",
       "require": "./dist/proxy.cjs"
     },
+    "./proxy-edge": {
+      "types": "./dist/proxy-edge.d.ts",
+      "import": "./dist/proxy-edge.js",
+      "require": "./dist/proxy-edge.cjs"
+    },
     "./cache-handler": {
       "types": "./dist/cache-handler.d.ts",
       "import": "./dist/cache-handler.js",
