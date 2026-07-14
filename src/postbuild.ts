@@ -304,9 +304,7 @@ export function runPostbuild(options: PostbuildOptions = {}): PostbuildResult {
 	// Next 16 reads `proxy.ts`. A mismatch is ignored by the framework with no
 	// error, so the app ships with no CSP. Warn loudly (never throws).
 	const nextVersion = manifest.nextVersion ?? detectNextVersion(projectDir);
-	const nextMajor = nextVersion
-		? Number.parseInt(nextVersion, 10)
-		: undefined;
+	const nextMajor = nextVersion ? Number.parseInt(nextVersion, 10) : undefined;
 	const wiringWarning = checkHandlerWiring(
 		projectDir,
 		Number.isFinite(nextMajor) ? nextMajor : undefined,
@@ -367,8 +365,7 @@ export function checkHandlerWiring(
 		wiringFileExists(projectDir, "middleware") ||
 		wiringFileExists(srcDir, "middleware");
 	const hasProxy =
-		wiringFileExists(projectDir, "proxy") ||
-		wiringFileExists(srcDir, "proxy");
+		wiringFileExists(projectDir, "proxy") || wiringFileExists(srcDir, "proxy");
 
 	let warning: string | undefined;
 	if (nextMajor <= 15 && hasProxy && !hasMiddleware) {
