@@ -67,6 +67,29 @@ function assertSafeValue(name: string, value: string): void {
 	}
 }
 
+// A manifest-sourced script token (an inline-shell hash or an external integrity
+// hash) is spread verbatim into `script-src` and joined into the header. The
+// manifest is a trusted build artifact, but every token is validated anyway (#23)
+// so a corrupt or tampered manifest cannot inject a directive or re-open an
+// unsafe-* source regardless of provenance. Stricter than `assertSafeValue`: it
+// also rejects INNER WHITESPACE, since a single token packing
+// `'sha256-x' 'unsafe-inline'` would otherwise smuggle a second source past the
+// space-join.
+const UNSAFE_SCRIPT_TOKEN = /[\s;,]/;
+
+function assertSafeScriptToken(name: string, value: string): void {
+	if (
+		UNSAFE_SCRIPT_TOKEN.test(value) ||
+		BANNED_SCRIPT_SRC.has(value.trim().toLowerCase())
+	) {
+		throw new Error(
+			`strict-csp-next: refusing to build a policy with an unsafe ${name} token ` +
+				`from the manifest: ${JSON.stringify(value)} (must be a single hash ` +
+				`source with no whitespace, ';', ',', CR, LF, or unsafe-* keyword)`,
+		);
+	}
+}
+
 function validateDirectives(directives: Record<string, string[] | true>): void {
 	for (const [name, value] of Object.entries(directives)) {
 		if (!DIRECTIVE_NAME.test(name)) {
@@ -164,6 +187,16 @@ export function buildPolicy(
 	const isDev = process.env.NODE_ENV === "development";
 	const userDirectives = options.directives ?? {};
 	validateDirectives(userDirectives);
+
+	// Defense-in-depth (#23): the manifest is a trusted build artifact, but its
+	// hash/integrity tokens are spread into `script-src` below, so validate each
+	// one with the same rigor as caller directives before it reaches the header.
+	for (const v of shellHashes) assertSafeScriptToken("shellHashes", v);
+	if (externalIntegrity) {
+		for (const v of externalIntegrity) {
+			assertSafeScriptToken("externalIntegrity", v);
+		}
+	}
 
 	// Strip banned sources from EVERY script-governing directive a caller passed,
 	// not just `script-src`, so `script-src-elem`/`script-src-attr`/`default-src`

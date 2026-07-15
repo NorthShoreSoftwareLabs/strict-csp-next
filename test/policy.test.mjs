@@ -56,6 +56,57 @@ test("buildPolicy rejects injection via directive name and CRLF reportUri", () =
 	);
 });
 
+test("buildPolicy rejects a manifest shell hash carrying injected tokens (#23)", () => {
+	// A manifest-sourced hash is spread verbatim into script-src. An inner space
+	// would smuggle a second source past the join, re-opening inline scripts.
+	assert.throws(
+		() => buildPolicy(["'sha256-abc' 'unsafe-inline'"], "n", {}),
+		/unsafe shellHashes token from the manifest/,
+	);
+	// A `;` in a shell hash could split off a second, weaker directive.
+	assert.throws(
+		() => buildPolicy(["'sha256-abc'; script-src 'unsafe-inline'"], "n", {}),
+		/unsafe shellHashes token from the manifest/,
+	);
+	// CRLF cannot split the response header either.
+	assert.throws(
+		() => buildPolicy(["'sha256-abc'\r\nSet-Cookie: x=1"], "n", {}),
+		/unsafe shellHashes token from the manifest/,
+	);
+});
+
+test("buildPolicy rejects a manifest integrity hash carrying injected tokens (#23)", () => {
+	assert.throws(
+		() =>
+			buildPolicy(
+				["'sha256-shell'"],
+				null,
+				{},
+				["'sha384-x' 'unsafe-eval'"],
+				0,
+			),
+		/unsafe externalIntegrity token from the manifest/,
+	);
+	// A bare unsafe-* keyword smuggled in as an integrity token is rejected.
+	assert.throws(
+		() => buildPolicy(["'sha256-shell'"], null, {}, ["'unsafe-inline'"], 0),
+		/unsafe externalIntegrity token from the manifest/,
+	);
+});
+
+test("buildPolicy accepts well-formed manifest hash/integrity tokens (#23)", () => {
+	// The guard must not reject the normal shape: single quoted hash sources.
+	const csp = buildPolicy(
+		["'sha256-abc123=='"],
+		null,
+		{},
+		["'sha384-def456=='"],
+		0,
+	);
+	assert.match(csp, /'sha256-abc123=='/);
+	assert.match(csp, /'sha384-def456=='/);
+});
+
 test("buildPolicy merges script-src additions but strips unsafe-inline/eval", () => {
 	const csp = buildPolicy([], "n", {
 		directives: {

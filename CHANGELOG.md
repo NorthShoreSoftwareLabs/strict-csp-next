@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-14
+
+### Security
+
+- **Manifest-sourced `script-src` tokens are now validated (defense-in-depth,
+  #23).** `buildPolicy` spreads the manifest's inline-shell hashes and external
+  integrity hashes into `script-src`, previously without the per-value guard that
+  caller `directives` get. A corrupt or tampered manifest entry containing `;`,
+  whitespace, CR, LF, or an `unsafe-*` keyword could in principle inject a
+  directive or re-open `'unsafe-inline'`. Each token is now checked before it
+  reaches the header (stricter than the caller-value guard — it also rejects
+  inner whitespace, the vector that would smuggle a second source past the
+  space-join) and a bad token throws. Not exploitable in practice today (the
+  manifest is a trusted `postbuild` artifact), but the injection class is now
+  closed regardless of manifest provenance.
+
 ## [0.3.0] - 2026-07-14
 
 ### Added
