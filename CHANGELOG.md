@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-14
+
 ### Added
 
 - **Next.js 15 cache-handler runtime e2e (`examples/next15-cache`).** A classic
@@ -95,6 +97,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Caller `script-src-elem` / `script-src-attr` no longer shadows the
+  library-owned `script-src`.** A caller who added a more-specific script
+  directive via `options.directives` had it emitted without the shell hashes or
+  per-request nonce, which broke nonce routes two ways: CSP3 browsers consult
+  `script-src-elem` for `<script>` elements and never fall back to `script-src`,
+  so those scripts were blocked; and Next's `getScriptNonceFromHeader` reads the
+  *first* `script-src*` directive it finds, so it read the credential-less one
+  and stamped no nonce. Both broke dynamic/PPR hydration silently. The computed
+  `script-src` sources are now mirrored into any caller-supplied
+  `script-src-elem` / `script-src-attr` (their extra sources kept and deduped,
+  matched case-insensitively, a lone `'none'` dropped once real credentials are
+  added).
 - **Partial SRI coverage no longer ships a broken page.** Previously the policy
   dropped `'self'` and forced `'strict-dynamic'` whenever *any* integrity hash
   was present, which blocked the un-pinned parser-inserted chunks that real
@@ -114,6 +128,18 @@ All notable changes to this project are documented here. The format follows
   `Content-Security-Policy-Report-Only` end to end.
 - Internal: the script tokenizer is centralized into a single `scanScripts`
   pass; the inline/external extractors and counters are thin filters over it.
+
+### Security
+
+- **Both proxies strip client-controlled CSP / nonce request headers.** The Node
+  and Edge proxies now delete any inbound `content-security-policy`,
+  `content-security-policy-report-only`, and `x-nonce` request header before the
+  render sees it, on every path including `skipStatic`. An inbound CSP could
+  otherwise influence the nonce Next reads, and a stale `x-nonce` could mislead
+  app code that trusts it (notably on a static route, where the proxy mints no
+  nonce and previously forwarded the client value). The proxy re-sets the CSP and
+  `x-nonce` it owns afterward. Exposed as the pure `sanitizeRequestHeaders`
+  helper.
 
 ## [0.2.0] - 2026-06-05
 

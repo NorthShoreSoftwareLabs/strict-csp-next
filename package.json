@@ -1,6 +1,6 @@
 {
   "name": "strict-csp-next",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Strict CSP for Next.js App Router. No unsafe-inline. Pages stay static.",
   "type": "module",
   "packageManager": "pnpm@9.15.0",
